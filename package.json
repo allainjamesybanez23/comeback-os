@@ -1,0 +1,48 @@
+{
+  "name": "comeback-os",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline basketball strength and rehab training for Windows",
+  "author": "Comeback OS",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "start": "electron .",
+    "build": "tsc --noEmit && vite build && npm run icons && node scripts/notices.mjs",
+    "icons": "node scripts/icons.mjs",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "dist": "npm run build && electron-builder --win nsis portable --x64 --publish never"
+  },
+  "dependencies": {
+    "@fontsource/barlow-condensed": "^5.2.8",
+    "@fontsource-variable/inter": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "lucide-react": "^0.468.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.10",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "electron": "45.4.1",
+    "electron-builder": "26.18.0",
+    "sharp": "^0.34.5",
+    "tailwindcss": "^4.1.10",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.4.0"
+  },
+  "build": {
+    "appId": "local.comebackos.training",
+    "productName": "Comeback OS",
+    "directories": { "output": "release" },
+    "toolsets": { "nsis": "1.2.1" },
+    "files": ["dist/**/*", "electron/**/*", "build/icon.ico", "package.json", "!node_modules/**/*"],
+    "win": { "icon": "build/icon.ico", "target": ["nsis", "portable"], "signtoolOptions": { "signingHashAlgorithms": ["sha256"] } },
+    "nsis": { "artifactName": "Comeback-OS-Setup-${version}.exe", "oneClick": false, "perMachine": false },
+    "portable": { "artifactName": "Comeback-OS-Portable-${version}.exe" }
+  }
+}
