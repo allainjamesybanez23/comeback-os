@@ -12,7 +12,7 @@ export type SetLog = { contacts: number; reps?: number; kg?: number; at?: number
 export type DayLog = {
   status?: Status; reason?: string; pain?: number; stopped?: string[];
   sets?: Record<string, SetLog>; check?: Check; contacts?: number; rehab?: boolean
-  done?: Partial<Record<Module, boolean>>; time?: Partial<Record<Module, number>>
+  done?: Partial<Record<Module, boolean>>; time?: Partial<Record<Module, number>>; started?: Partial<Record<Module, number>>
 }
 export type State = {
   version: 1
@@ -290,4 +290,19 @@ export function weekRings(state: State, today: string) {
   const dates = Array.from({ length: 7 }, (_, i) => plusDays(start, i))
   const count = (module: Module) => dates.filter(date => sessionDone(state.logs[date], module)).length
   return { workout: count('workout'), rehab: count('rehab'), mobility: count('mobility'), foam: count('foam'), goal: 7, dates }
+}
+
+/* Every logged session duration, newest first. */
+export type SessionTime = { date: string; module: Module; seconds: number; started?: number }
+export function sessionTimes(state: State, today: string): SessionTime[] {
+  return Object.entries(state.logs)
+    .filter(([date]) => date <= today)
+    .flatMap(([date, log]) => moduleOrder.filter(m => (log.time?.[m] ?? 0) > 0).map(m => ({ date, module: m, seconds: log.time![m]!, started: log.started?.[m] })))
+    .sort((a, b) => b.date.localeCompare(a.date) || moduleOrder.indexOf(a.module) - moduleOrder.indexOf(b.module))
+}
+export function formatDuration(seconds: number) {
+  const minutes = Math.round(seconds / 60)
+  if (seconds > 0 && minutes < 1) return '<1 min'
+  if (minutes < 60) return minutes + ' min'
+  return Math.floor(minutes / 60) + ' h ' + String(minutes % 60).padStart(2, '0') + ' min'
 }

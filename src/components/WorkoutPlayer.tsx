@@ -20,8 +20,10 @@ type Props = {
   state: State
   today: string
   phase: number
-  record(step: Step, data: SetLog, isLast: boolean, seconds: number): void
-  complete(seconds: number): void
+  record(step: Step, data: SetLog, isLast: boolean): void
+  complete(): void
+  addTime(seconds: number): void
+  markStarted(): void
   stop(item: Exercise): void
   setPain(value: number): void
   openFlags(): void
@@ -75,6 +77,11 @@ export function WorkoutPlayer(props: Props) {
   const [hotkeyError, setHotkeyError] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const startedAt = useRef(performance.now())
+  const priorTime = useRef(log.time?.[module] ?? 0)
+  const flushed = useRef(0)
+  const active = useRef(false)
+  const latest = useRef(props)
+  latest.current = props
   const badgeSnapshot = useRef(badges(state, today).filter(unlocked).map(badge => badge.id))
   const root = useRef<HTMLDivElement>(null)
   const inputStep = useRef('')
@@ -94,13 +101,21 @@ export function WorkoutPlayer(props: Props) {
   const showKg = kgBase !== undefined || lastSet?.kg !== undefined
   const ticks = tempoTicks(item?.tempo || '')
   const elapsedNow = () => Math.round((performance.now() - startedAt.current) / 1000)
+  /* Session time is saved in pieces: on finish, on exit and when the player closes,
+     so leaving and resuming later still adds up to the real total. */
+  function activate() { if (!active.current) { active.current = true; latest.current.markStarted() } }
+  function flushTime() {
+    if (!active.current) return
+    const now = elapsedNow(), delta = now - flushed.current
+    if (delta > 0) { flushed.current = now; latest.current.addTime(delta) }
+  }
 
   useEffect(() => {
     root.current?.focus()
     window.desktop?.keepAwake(true)
     const off = window.desktop?.onWorkoutKeyError(() => { setBackground(false); setHotkeyError(true) })
     if (phase !== 'finish' && queue[index]) announce(queue[index])
-    return () => { window.desktop?.keepAwake(false); window.desktop?.backgroundKeys(false); off?.(); hush() }
+    return () => { window.desktop?.keepAwake(false); window.desktop?.backgroundKeys(false); off?.(); hush(); flushTime() }
   }, [])
   useEffect(() => {
     if (!item) return
@@ -169,6 +184,7 @@ export function WorkoutPlayer(props: Props) {
   function startReady(target = step) {
     if (!target) return
     armAudio()
+    activate()
     run('ready', READY)
     say(`Get ready. ${target.item.name}.`)
   }
@@ -205,6 +221,7 @@ export function WorkoutPlayer(props: Props) {
     const count = Number(contacts)
     if (manual && (contacts === '' || !Number.isInteger(count) || count < 0 || count > 500)) { setContactError(true); return }
     armAudio()
+    activate()
     const data: SetLog = { contacts: manual ? count : item.contacts ?? 0, at: Date.now() }
     const fresh = inputStep.current === step.id
     const repCount = fresh ? reps : targetReps(item.reps) ?? 0
@@ -212,7 +229,7 @@ export function WorkoutPlayer(props: Props) {
     if (!seconds && repCount > 0) { data.reps = repCount; if (showKg && weight > 0) data.kg = weight }
     const after = upcoming(index)
     const isLast = after < 0
-    props.record(step, data, isLast, elapsedNow())
+    props.record(step, data, isLast)
     setTempoRunning(false)
     setPending(false)
     if (isLast) { finish(); return }
@@ -227,6 +244,7 @@ export function WorkoutPlayer(props: Props) {
     }
   }
   function finish() {
+    flushTime()
     setClock(undefined)
     setPhase('finish')
     beep(860, true)
@@ -302,7 +320,7 @@ export function WorkoutPlayer(props: Props) {
       <span className="mono">{done}/{queue.length} sets</span>
     </div>
     <div className="player-tools">
-      <span className="elapsed mono" title="Session time"><Clock3 size={15}/>{formatClock(elapsed)}</span>
+      <span className="elapsed mono" title="Total time in this session today"><Clock3 size={15}/>{formatClock(priorTime.current + elapsed)}</span>
       <button className={'pain-chip level-' + Math.min(log.pain ?? 0, 3)} onClick={() => setPainOpen(true)} title="Log forearm pain">Forearm <strong className="mono">{log.pain ?? 0}/10</strong></button>
       <button className="icon-btn" aria-pressed={voice} onClick={() => props.onSetting('voice')} title={'Voice coach ' + (voice ? 'on' : 'off') + ' (V)'} aria-label="Voice coach">{voice ? <Mic size={18}/> : <MicOff size={18}/>}</button>
       <button className="icon-btn" aria-pressed={audio} onClick={() => { armAudio(); props.onSetting('audio') }} title={'Beeps ' + (audio ? 'on' : 'off') + ' (M)'} aria-label="Beeps">{audio ? <Volume2 size={18}/> : <VolumeX size={18}/>}</button>
@@ -316,7 +334,7 @@ export function WorkoutPlayer(props: Props) {
       <p>{done} of {queue.length} sets are saved. You can resume from Today, or count the session as finished.</p>
       <div className="dialog-actions">
         <button className="button" autoFocus onClick={() => setExitOpen(false)}>Keep going</button>
-        <button className="button subtle" onClick={() => { setExitOpen(false); props.complete(elapsedNow()); finish() }}>Finish session now</button>
+        <button className="button subtle" onClick={() => { setExitOpen(false); activate(); props.complete(); finish() }}>Finish session now</button>
         <button className="button subtle" onClick={props.onExit}>Save &amp; exit</button>
       </div>
     </Dialog>}

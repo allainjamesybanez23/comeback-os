@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { Activity, CalendarDays, Check, ChevronLeft, ChevronRight, Flame, Footprints, HeartPulse, Scale, ShieldCheck } from 'lucide-react'
-import { dateLabel, distance, monday, plusDays, recoveryReasons, startDate, statsFor, weightTrend, type Benchmark, type Check as CheckIn, type State, type Status } from '../model'
+import { dateLabel, distance, formatDuration, monday, moduleLabel, moduleOrder, plusDays, recoveryReasons, startDate, statsFor, weightTrend, type Benchmark, type Check as CheckIn, type Module, type State, type Status } from '../model'
 import type { Update } from '../store'
 import { Dialog, Empty } from './ui'
 
 const statusLabels: Record<Status, string> = { full: 'Full workout', recovery: 'Recovery / rehab', skipped: 'Skipped' }
 const reasons = ['Fatigue', 'Soreness >3/10', 'Travel / schedule']
 type TrackerProps = { state: State; update: Update; today: string }
+const totalTime = (log: State['logs'][string] | undefined) => Object.values(log?.time ?? {}).reduce((sum, value) => sum + (value ?? 0), 0)
 
 export function Stats({ state, today }: Pick<TrackerProps, 'state' | 'today'>) {
   const metrics = statsFor(state,today)
@@ -30,6 +31,8 @@ export function Calendar({ state, update, today, stats = true }: TrackerProps & 
   const [reason, setReason] = useState('')
   const [rehab, setRehab] = useState(false)
   const [contacts, setContacts] = useState('')
+  const [minutes, setMinutes] = useState<Record<Module, string>>({ workout: '', mobility: '', rehab: '', foam: '' })
+  const [loadedMinutes, setLoadedMinutes] = useState<Record<Module, string>>({ workout: '', mobility: '', rehab: '', foam: '' })
   const year = Number(cursor.slice(0,4))
   const month = Number(cursor.slice(5,7))
   const first = cursor + '-01'
@@ -51,13 +54,25 @@ export function Calendar({ state, update, today, stats = true }: TrackerProps & 
     setReason(log?.reason ?? '')
     setRehab(log?.rehab ?? false)
     setContacts(log?.contacts === undefined ? '' : String(log.contacts))
+    const loaded = Object.fromEntries(moduleOrder.map(m => [m, log?.time?.[m] ? String(Math.round(log.time[m]! / 60)) : ''])) as Record<Module, string>
+    setMinutes(loaded)
+    setLoadedMinutes(loaded)
   }
   function save(event: FormEvent) {
     event.preventDefault()
-    update(before => ({ ...before, logs: { ...before.logs, [selected]: {
-      ...before.logs[selected], status: status || undefined, reason: status === 'skipped' ? reason || undefined : undefined,
-      rehab, contacts: contacts === '' ? undefined : Number(contacts),
-    } } }))
+    update(before => {
+      const time = { ...before.logs[selected]?.time }
+      for (const m of moduleOrder) {
+        if (minutes[m] === loadedMinutes[m]) continue
+        const value = Number(minutes[m])
+        if (minutes[m] === '' || !Number.isFinite(value) || value <= 0) delete time[m]
+        else time[m] = Math.round(value * 60)
+      }
+      return { ...before, logs: { ...before.logs, [selected]: {
+        ...before.logs[selected], status: status || undefined, reason: status === 'skipped' ? reason || undefined : undefined,
+        rehab, contacts: contacts === '' ? undefined : Number(contacts), time,
+      } } }
+    })
     setSelected('')
   }
   function cell(key: string, valid: boolean, annual: boolean) {
@@ -67,7 +82,7 @@ export function Calendar({ state, update, today, stats = true }: TrackerProps & 
     const label = status ? statusLabels[status] : 'No day status'
     return <button key={key} type="button" className={`calendar-cell ${status} ${key === today ? 'today' : ''}`}
       disabled={key > today} title={dateLabel(key,short) + ' · ' + label} aria-label={dateLabel(key,{dateStyle:'full'}) + ': ' + label} onClick={() => select(key)}>
-      {!annual && <><span className="mono">{Number(key.slice(-2))}</span>{status && <span className="cell-status">{label}</span>}</>}
+      {!annual && <><span className="mono">{Number(key.slice(-2))}</span>{status && <span className="cell-status">{label}</span>}{totalTime(log) > 0 && <span className="cell-time mono">{formatDuration(totalTime(log))}</span>}</>}
     </button>
   }
   return <div className="page-content">
@@ -92,6 +107,9 @@ export function Calendar({ state, update, today, stats = true }: TrackerProps & 
         {status === 'skipped' && <label className="field">Skip reason<select value={reason} onChange={e => setReason(e.target.value)}><option value="">Optional</option>{reasons.map(item => <option key={item}>{item}</option>)}</select></label>}
         <label className="field">Extra plyo foot contacts<input type="number" min="0" max="9999" step="1" value={contacts} onChange={e => setContacts(e.target.value)}/></label>
         <label className="checkbox"><input type="checkbox" checked={rehab} onChange={e => setRehab(e.target.checked)}/> Forearm rehab completed</label>
+        <fieldset className="minutes-fieldset"><legend>Session time (minutes)</legend>
+          {moduleOrder.map(m => <label className="field" key={m}>{moduleLabel[m]}<span className="unit-input"><input type="number" min="0" max="600" step="1" value={minutes[m]} onChange={e => setMinutes(value => ({ ...value, [m]: e.target.value }))}/><span>min</span></span></label>)}
+        </fieldset>
         <button type="submit" className="button"><Check size={17}/>Save day</button>
       </form>
     </Dialog>}

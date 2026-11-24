@@ -86,23 +86,28 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
     if (value >= 3 && pain < 3) { setDetail(undefined); setRed(true) }
     updateLog(today, before => ({ ...before, pain: value, stopped: value >= 3 && item ? [...new Set([...(before.stopped ?? []), item.id])] : before.stopped }))
   }
-  function finished(before: DayLog, m: Module, seconds: number): DayLog {
+  function finished(before: DayLog, m: Module): DayLog {
     const easy = days[dayFor(state, today)].level === 'Easy'
     return {
       ...before,
       done: { ...before.done, [m]: true },
-      time: { ...before.time, [m]: (before.time?.[m] ?? 0) + seconds },
       status: m === 'workout' ? (easy ? (before.status === 'full' ? 'full' : 'recovery') : 'full') : before.status === 'full' ? 'full' : 'recovery',
       rehab: before.rehab || m === 'rehab',
       reason: undefined,
     }
   }
-  function record(m: Module, step: Step, data: SetLog, isLast: boolean, seconds: number) {
+  function record(m: Module, step: Step, data: SetLog, isLast: boolean) {
     current.current = step.item
     updateLog(today, before => {
       const next = { ...before, sets: { ...before.sets, [step.id]: data } }
-      return isLast ? finished(next, m, seconds) : next
+      return isLast ? finished(next, m) : next
     })
+  }
+  function addTime(m: Module, seconds: number) {
+    updateLog(today, before => ({ ...before, time: { ...before.time, [m]: (before.time?.[m] ?? 0) + seconds } }))
+  }
+  function markStarted(m: Module) {
+    updateLog(today, before => before.started?.[m] ? before : { ...before, started: { ...before.started, [m]: Date.now() } })
   }
   function stop(item: Exercise) {
     updateLog(today, before => ({ ...before, stopped: [...new Set([...(before.stopped ?? []), item.id])] }))
@@ -126,8 +131,9 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
     return <>
       <WorkoutPlayer key={m + session.key} module={m} title={m === 'workout' ? days[dayFor(state, today)].title : moduleLabel[m]}
         sections={playerSections} state={state} today={today} phase={phase}
-        record={(step, data, isLast, seconds) => record(m, step, data, isLast, seconds)}
-        complete={seconds => updateLog(today, before => finished(before, m, seconds))}
+        record={(step, data, isLast) => record(m, step, data, isLast)}
+        complete={() => updateLog(today, before => finished(before, m))}
+        addTime={seconds => addTime(m, seconds)} markStarted={() => markStarted(m)}
         stop={stop} setPain={setPain} openFlags={() => setRed(true)} showDetail={setDetail} onSetting={setting}
         onExit={() => { setSession(undefined); setRoute('today') }} startNext={next => start(next)}/>
       {dialogs}

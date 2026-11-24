@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, BookOpen, CalendarClock, Check, ChevronRight, Clock3, Flame, Layers, Play, RotateCcw, Target, Trophy } from 'lucide-react'
 import { days, mindset, phases, progression, quotes, type Exercise } from '../data/comebackProgram'
-import { clearanceEarliest, dateLabel, dayFor, distance, moduleLabel, programSections, queueFor, sessionDone, sessionMinutes, sessionStats, startDate, statsFor, weekFor, weekRings, type Module, type State } from '../model'
+import { clearanceEarliest, dateLabel, dayFor, distance, formatDuration, moduleLabel, programSections, queueFor, sessionDone, sessionMinutes, sessionStats, startDate, statsFor, weekFor, weekRings, type Module, type State } from '../model'
 import { badges, foundationDay, nextBadge, unlocked } from '../achievements'
 import { ExerciseAnimation } from './ExerciseAnimation'
 import { Court, FaithIcon, Readiness, Rings, moduleBlurb, moduleIcon, ringTones } from './ui'
@@ -77,7 +77,7 @@ export function Today({ state, today, phase, start, preview, showDetail, setPain
             </ul>
             {started && <div className="hero-progress"><div className="progress-track"><span style={{ width: workout.stats.done / workout.stats.sets * 100 + '%' }}/></div><span className="mono">{workout.stats.done}/{workout.stats.sets} sets</span></div>}
             <div className="hero-actions">
-              {workout.done ? <span className="done-badge"><Check size={18}/>Workout complete</span> :
+              {workout.done ? <span className="done-badge"><Check size={18}/>Workout complete{log.time?.workout ? ' · ' + formatDuration(log.time.workout) : ''}</span> :
                 <button className="button xl go" onClick={() => start('workout')} disabled={hold} title={hold ? 'Pain at 3/10 or more: training is locked for today' : undefined}><Play size={20} fill="currentColor"/>{started ? 'Resume workout' : 'Start workout'}<ArrowRight size={18}/></button>}
               <button className="button ghost light" onClick={() => preview('workout')}>{workout.done ? 'Review session' : 'Preview'}<ChevronRight size={17}/></button>
             </div>
@@ -99,7 +99,7 @@ export function Today({ state, today, phase, start, preview, showDetail, setPain
               return <article key={m} className={'session-card tone-' + m + (info.done ? ' is-done' : '')}>
                 <div className="session-card-top">
                   <span className="session-icon"><Icon size={20}/></span>
-                  {info.done ? <span className="done-badge small"><Check size={14}/>Done</span> : <span className="mono muted">~{info.minutes} min</span>}
+                  {info.done ? <span className="done-badge small"><Check size={14}/>Done{log.time?.[m] ? ' · ' + formatDuration(log.time[m]!) : ''}</span> : <span className="mono muted">{log.time?.[m] ? formatDuration(log.time[m]!) + ' so far' : '~' + info.minutes + ' min'}</span>}
                 </div>
                 <h3>{moduleLabel[m]}</h3>
                 <p>{moduleBlurb[m]}</p>

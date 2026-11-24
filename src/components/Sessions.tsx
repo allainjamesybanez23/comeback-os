@@ -1,6 +1,6 @@
 import { ArrowRight, Check, ChevronLeft, ChevronRight, Clock3, Layers, ListOrdered, Play, Repeat } from 'lucide-react'
 import { days, type Exercise, type Section } from '../data/comebackProgram'
-import { dateLabel, dayFor, moduleLabel, moduleOrder, plusDays, programSections, sessionDone, sessionMinutes, sessionStats, type DayLog, type Module, type State } from '../model'
+import { dateLabel, dayFor, formatDuration, moduleLabel, moduleOrder, plusDays, programSections, sessionDone, sessionMinutes, sessionStats, type DayLog, type Module, type State } from '../model'
 import { ExerciseRow, moduleBlurb, moduleIcon } from './ui'
 
 type Props = {
@@ -65,10 +65,10 @@ export function Sessions({ state, today, phase, module, date, setModule, setDate
         <ul className="hero-facts"><li><Clock3 size={15}/>~{minutes} min</li><li><Layers size={15}/>{stats.exercises} exercises</li><li><ListOrdered size={15}/>{stats.sets} sets</li></ul>
       </div>
       <div className="session-lead-actions">
-        {isToday ? (done ? <span className="done-badge"><Check size={18}/>Complete</span> :
+        {isToday || done ? (done ? <span className="done-badge"><Check size={18}/>Complete{log.time?.[module] ? ' · ' + formatDuration(log.time[module]!) : ''}</span> :
           <button className="button xl go" onClick={() => start(module)} disabled={hold}><Play size={19} fill="currentColor"/>{stats.done ? 'Resume' : 'Start'} session<ArrowRight size={18}/></button>) :
           <p className="muted">Preview only. Sessions start on their day.</p>}
-        {stats.done > 0 && <span className="mono muted">{stats.done}/{stats.sets} sets logged</span>}
+        {stats.done > 0 && <span className="mono muted">{stats.done}/{stats.sets} sets logged{!done && log.time?.[module] ? ' · ' + formatDuration(log.time[module]!) + ' so far' : ''}</span>}
       </div>
     </section>
 

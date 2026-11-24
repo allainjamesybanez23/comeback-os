@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { circuit, circuitRows, cooldown, dailyMobility, days, expansion, foamRows, phases, rehabRows, sundayFlow, sundayMobility, warmUp } from '../src/data/comebackProgram'
 import { motionFor } from '../src/anim/motions'
-import { activePhase, blockedReason, clearanceEarliest, eligiblePhase, fresh, loadKg, plusDays, prescribed, programSections, queueFor, recoveryReasons, scheduleConflicts, sessionDone, statsFor, targetReps, weightTrend, weekFor, workSeconds, type State } from '../src/model'
+import { activePhase, blockedReason, clearanceEarliest, eligiblePhase, formatDuration, fresh, loadKg, sessionTimes, plusDays, prescribed, programSections, queueFor, recoveryReasons, scheduleConflicts, sessionDone, statsFor, targetReps, weightTrend, weekFor, workSeconds, type State } from '../src/model'
 import { tempoTicks } from '../src/audio'
 
 test('launch falls in Week 3 and progression changes squat, plyos and Saturday intervals', () => {
@@ -113,4 +113,19 @@ test('rep and load parsing for set logging', () => {
   assert.equal(loadKg('17 kg · left hand only'), 17)
   assert.equal(loadKg('5–10 kg or band'), undefined)
   assert.equal(loadKg('Light band'), undefined)
+})
+
+test('session times are listed per day and formatted in minutes and hours', () => {
+  const state: State = {...fresh, logs:{
+    '2026-11-23':{time:{workout:3125, rehab:640}},
+    '2026-11-24':{time:{mobility:700}},
+    '2026-11-30':{time:{workout:100}},
+  }}
+  const list = sessionTimes(state, '2026-11-24')
+  assert.deepEqual(list.map(entry => [entry.date, entry.module, entry.seconds]), [
+    ['2026-11-24','mobility',700], ['2026-11-23','workout',3125], ['2026-11-23','rehab',640],
+  ])
+  assert.equal(formatDuration(3125), '52 min')
+  assert.equal(formatDuration(4500), '1 h 15 min')
+  assert.equal(formatDuration(20), '<1 min')
 })
