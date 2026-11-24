@@ -1,160 +1,289 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { ClipboardList, Pause, Play } from 'lucide-react'
 import type { Exercise } from '../data/comebackProgram'
+import { motionFor, type Anchor, type Ball, type Ease, type Key, type Motion } from '../anim/motions'
+import { mix, project, solve, type Camera, type Pose, type Solved, type V3 } from '../anim/rig'
+import { CloseUpSvg, closeUpLength } from '../anim/CloseUp'
 
-type Vec = [number, number]
-type Joint = 'head' | 'shoulder' | 'hip' | 'le' | 'lh' | 're' | 'rh' | 'lk' | 'lf' | 'rk' | 'rf'
-type Pose = Record<Joint, Vec>
-const upright: Pose = {
-  head:[143,36], shoulder:[140,64], hip:[139,113], le:[126,89], lh:[128,109], re:[157,88], rh:[152,104],
-  lk:[126,150], lf:[121,194], rk:[156,150], rf:[164,194],
+/* ---------- Timeline ---------- */
+type TKey = Key & { d: number; hold: number }
+type Timeline = { keys: TKey[]; times: number[]; T: number; labels: string[]; solved: Solved[] }
+const easeFn: Record<Ease, (u: number) => number> = {
+  linear: u => u,
+  in: u => u * u,
+  out: u => 1 - (1 - u) * (1 - u),
+  inout: u => u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2,
 }
-const squat: Partial<Pose> = { head:[150,67], shoulder:[145,92], hip:[128,140], le:[127,110], lh:[139,94], lk:[102,153], rk:[163,154] }
-const kneel: Partial<Pose> = { hip:[139,132], lk:[105,151], lf:[103,191], rk:[151,191], rf:[183,194], head:[141,56], shoulder:[140,82], le:[125,107], lh:[130,126], re:[154,109], rh:[150,126] }
-const lunge: Partial<Pose> = { head:[130,65], shoulder:[132,89], hip:[137,138], lk:[96,147], lf:[86,194], rk:[158,178], rf:[195,194], le:[118,122], lh:[115,145], re:[155,111], rh:[147,122] }
-const split: Partial<Pose> = { ...upright, lf:[86,194], lk:[104,150], rf:[195,194], rk:[163,148] }
-const seated: Partial<Pose> = { head:[103,94], shoulder:[105,120], hip:[107,180], lk:[155,165], lf:[175,192], rk:[142,181], rf:[187,194], le:[141,143], lh:[168,148], re:[120,147], rh:[126,160] }
-const lying: Partial<Pose> = { head:[73,175], shoulder:[99,178], hip:[148,180], lk:[183,150], lf:[216,194], rk:[171,149], rf:[203,194], le:[118,152], lh:[116,125], re:[121,180], rh:[143,180] }
-const lean: Partial<Pose> = { head:[95,65], shoulder:[111,83], hip:[144,114], le:[113,111], lh:[111,142], re:[135,93], rh:[147,102], lk:[141,150], lf:[143,194], rk:[185,116], rf:[218,111] }
-const raised: Partial<Pose> = { le:[124,43], lh:[120,18] }
-const handDown: Partial<Pose> = { le:[112,138], lh:[100,150] }
-const dribbleBase: Partial<Pose> = { ...squat, le:[113,113], lh:[104,126], re:[157,110], rh:[150,120] }
-const floating: Partial<Pose> = { head:[143,23], shoulder:[140,51], hip:[140,100], le:[120,75], lh:[114,97], re:[154,73], rh:[145,91], lk:[128,138], lf:[122,173], rk:[158,138], rf:[165,173] }
-const wall: Partial<Pose> = { head:[98,50], shoulder:[111,74], hip:[141,120], lk:[162,157], lf:[182,194], rk:[171,157], rf:[191,194], le:[86,88], lh:[69,76], re:[119,95], rh:[112,107] }
-
-type Motion = { from?: Partial<Pose>; to: Partial<Pose>; via?: Partial<Pose>; equipment?: 'bench' | 'wall' | 'band' | 'bar' | 'step' | 'tape' | 'floor'; ball?: 'low' | 'mid' | 'high' | 'wide' | 'toss' | 'dual' | 'foot' | 'hold'; caption: string }
-const motions: Record<string, Motion> = {
-  squatRack:{ from:{ le:[118,82],lh:[126,66] }, to:squat, caption:'Left rack · hips descend between the knees' },
-  squat:{ to:{...squat,le:[106,101],lh:[85,96]}, caption:'Sit between the hips · keep the heels down' },
-  wallSit:{ from:{...upright, lf:[101,194],rf:[117,194]}, to:{...squat,head:[175,73],shoulder:[179,102],hip:[179,146],lk:[108,146],rk:[119,148],lf:[101,194],rf:[117,194],le:[154,125],lh:[132,130]}, equipment:'wall',caption:'Back supported · thighs near level' },
-  rdl:{ from:{rf:[163,176],rk:[153,150]},to:lean,caption:'Hips hinge · rear heel and torso counterbalance' },
-  hinge:{ from:{...seated,lf:[212,192]},to:{...seated,head:[150,128],shoulder:[134,147],le:[165,148],lh:[184,165],lf:[212,192]},caption:'Reach from the hips' },
-  lunge:{ from:split,to:lunge,caption:'Back knee lowers · front foot stays planted' },
-  rfess:{ from:{...split,rf:[194,156]},to:{...lunge,rf:[194,156]},equipment:'bench',caption:'Rear foot elevated · descend straight down' },
-  sideLunge:{ from:{lf:[91,194],rf:[191,194]},to:{...squat,hip:[103,128],lk:[91,160],lf:[91,194],rk:[151,160],rf:[191,194]},caption:'Sit toward the working leg · opposite leg stays long' },
-  nordic:{ from:{...kneel,lk:[120,192],lf:[86,194]},to:{...kneel,lk:[120,192],lf:[86,194],hip:[140,147],shoulder:[166,106],head:[178,80]},caption:'Pivot from the knees with hips extended' },
-  step:{ from:{...upright,lf:[194,155],lk:[171,134]},to:{...floating,head:[187,22],shoulder:[180,45],hip:[184,84],lk:[184,121],lf:[194,155],rk:[167,123],rf:[144,144]},equipment:'bench',caption:'Drive through the foot on the bench' },
-  jump:{ from:squat,via:floating,to:{...squat,head:[145,75]},caption:'Load · jump · land softly' },
-  bounce:{ from:upright,to:{...floating,lf:[121,182],rf:[164,182]},caption:'Short ankle-driven bounce' },
-  line:{ from:upright,to:{...floating,hip:[155,109],lf:[144,178],rf:[180,178]}, equipment:'tape',caption:'Hop forward and back over a narrow line' },
-  skate:{ from:{...squat,lf:[102,194],rf:[121,182]},via:floating,to:{...squat,hip:[171,133],lk:[138,151],lf:[147,181],rk:[183,157],rf:[191,194]},equipment:'tape',caption:'Short lateral hop · absorb the landing' },
-  splitJump:{ from:lunge,via:floating,to:{...lunge,hip:[155,135],lk:[122,171],lf:[86,194],rk:[178,147],rf:[195,194]},caption:'Switch legs in the air' },
-  drop:{ from:{...floating,head:[182,18],shoulder:[186,42],hip:[188,82],lk:[174,116],lf:[170,155],rk:[199,117],rf:[201,155]},via:{...floating,hip:[138,112]},to:squat,equipment:'bench',caption:'Step off a low surface · absorb the landing' },
-  jack:{ from:{lf:[135,194],rf:[154,194]},to:{...raised,lf:[94,194],rf:[197,194]},caption:'Step or jump out lightly · right arm relaxed' },
-  swing:{ from:{lk:[106,149],lf:[83,185],le:[97,75],lh:[73,91]},to:{lk:[171,118],lf:[205,126],le:[97,75],lh:[73,91]},caption:'Left-hand support · swing from the hip' },
-  skip:{ from:{lk:[87,106],lf:[106,145],rh:[147,96]},to:{rk:[196,109],rf:[209,150],lh:[106,96]},caption:'Alternate a high knee and quiet foot contact' },
-  walk:{ from:{lk:[115,153],lf:[96,194],rf:[183,192]},to:{lf:[183,192],rk:[122,152],rf:[96,194]},caption:'Alternate steady, controlled steps' },
-  shuffle:{ from:{...squat,lf:[96,194],rf:[157,194]},to:{...squat,head:[175,74],hip:[170,135],lk:[150,153],rk:[195,152],lf:[127,194],rf:[205,194]},equipment:'tape',caption:'Stay low · keep the feet from crossing' },
-  touch:{ from:squat,to:{...squat,head:[103,116],shoulder:[114,132],le:[100,158],lh:[91,190],hip:[138,132],lk:[100,154],lf:[78,194],rf:[187,194]},equipment:'tape',caption:'Touch the tape with the left hand only' },
-  pivot:{ from:squat,to:{...upright,hip:[173,109],rk:[187,137],rf:[211,181],lk:[155,150],lf:[129,194]},caption:'Open the hips · drive into two short steps' },
-  square:{ from:squat,to:{...floating,lk:[97,144],lf:[91,178],rk:[133,141],rf:[139,177]},equipment:'tape',caption:'Keep each landing inside your marked square' },
-  drive:{ from:wall,to:{...wall,lk:[115,122],lf:[139,151]},equipment:'wall',caption:'Drive the knee with only permitted wall contact' },
-  calf:{ from:{rf:[160,182],rk:[154,148]},to:{...floating,head:[143,28],shoulder:[140,56],hip:[139,105],lf:[127,194],lk:[132,147],rf:[156,175]},caption:'Rise through the forefoot' },
-  toes:{ from:upright,to:{lk:[124,155],lf:[111,185],rf:[155,186]},caption:'Lift the toes with the heels supported' },
-  rock:{ from:kneel,to:{...kneel,hip:[119,133],lk:[78,148],lf:[103,191],shoulder:[119,85],head:[118,61]},caption:'Knee moves ahead while the heel stays down' },
-  kneel:{ from:kneel,to:{...kneel,head:[128,52],hip:[123,133],shoulder:[128,78],le:[109,52],lh:[100,27]},caption:'Tuck the pelvis and reach from the ribs' },
-  sideReach:{ from:seated,to:{...seated,head:[129,100],shoulder:[117,126],le:[95,99],lh:[105,73]},caption:'Open the ribs with a gentle left-arm reach' },
-  switch:{ from:seated,to:{...seated,lk:[137,159],lf:[191,181],rk:[149,185],rf:[177,161]},caption:'Rotate both bent knees together from the hips' },
-  lift:{ from:{...seated,lf:[210,192]},to:{...seated,lk:[150,163],lf:[207,150]},caption:'Lift from the hip without leaning back' },
-  book:{ from:{...lying,lh:[147,146]},to:{...lying,le:[80,139],lh:[63,113]},caption:'Open the upper arm while the knees stay stacked' },
-  pass:{ from:{lh:[103,113],le:[119,87]},to:{...raised,lh:[153,16]},equipment:'band',caption:'Move a wide, light band within comfortable range' },
-  roll:{ from:{lk:[116,153],lf:[91,189]},to:{lk:[135,156],lf:[106,189]},ball:'foot',caption:'Move slowly over the arch of the foot' },
-  balance:{ from:upright,to:{rk:[171,140],rf:[157,169]},caption:'Balance on one foot · have left-hand support available' },
-  bridge:{ from:{...lying,lf:[208,155],rf:[185,160]},to:{...lying,hip:[145,151],lk:[179,135],lf:[208,155],rk:[165,126],rf:[177,108]},equipment:'bench',caption:'Drive the heel into the bench and lift the pelvis' },
-  adductor:{ from:lying,to:{...lying,lk:[173,147],rk:[167,149]},ball:'hold',caption:'Apply steady inward pressure with the knees' },
-  deadbug:{ from:{...lying,lk:[170,137],lf:[197,139]},to:{...lying,lk:[177,167],lf:[214,179],le:[88,141],lh:[72,114]},caption:'Extend one leg while keeping the lower back down' },
-  crunch:{ from:{...lying,lf:[213,177]},to:{...lying,hip:[144,163],lk:[147,130],lf:[172,126],rk:[152,133],rf:[175,139]},caption:'Curl the pelvis toward the ribs' },
-  legRaise:{ from:{...lying,lk:[183,179],lf:[226,186]},to:{...lying,lk:[181,146],lf:[225,124]},caption:'Raise the top leg without rotating the pelvis' },
-  wrist:{ from:{...seated,le:[130,148],lh:[162,146]},to:{...seated,le:[130,148],lh:[149,130]},caption:'Supported forearm · motion at the wrist' },
-  rotate:{ from:{...seated,le:[130,148],lh:[157,153]},to:{...seated,le:[130,148],lh:[157,139]},caption:'Rotate the palm with the elbow still' },
-  deviate:{ from:{...seated,le:[132,143],lh:[154,136]},to:{...seated,le:[132,143],lh:[156,150]},caption:'Move the wrist side to side from thumb-up' },
-  grip:{ from:{...seated,le:[136,146],lh:[171,145]},to:{...seated,le:[136,146],lh:[167,149]},ball:'hold',caption:'Squeeze or open the fingers without forcing range' },
-  toss:{ from:{le:[104,104],lh:[79,105]},to:{le:[105,91],lh:[78,72]},ball:'toss',caption:'Short arc · soft release and catch' },
-  prayer:{ from:{le:[111,99],lh:[137,82],re:[168,99],rh:[143,82]},to:{le:[107,104],lh:[139,101],re:[172,104],rh:[141,101]},caption:'Gentle wrist stretch · no bodyweight on the hands' },
-  press:{ from:{...lying,le:[119,167],lh:[122,141]},to:{...lying,le:[125,143],lh:[126,108]},caption:'Press up smoothly · keep the ribs settled' },
-  row:{ from:{...seated,le:[148,135],lh:[184,140]},to:{...seated,le:[82,143],lh:[127,135]},equipment:'band',caption:'Pull the elbow toward the hip' },
-  bentRow:{ from:lean,to:{...lean,le:[147,86],lh:[116,109]},caption:'Hinge and row without turning the torso' },
-  rowHigh:{ from:{le:[104,77],lh:[75,69]},to:{le:[153,69],lh:[124,61]},equipment:'band',caption:'Pull toward eye level with elbows high' },
-  ohp:{ from:{...kneel,le:[111,90],lh:[115,66]},to:{...kneel,le:[118,54],lh:[118,23]},caption:'Press overhead without leaning back' },
-  fly:{ from:{le:[91,75],lh:[67,84]},to:{le:[120,68],lh:[147,73]},equipment:'band',caption:'Trace a wide arm arc with a soft elbow' },
-  pulldown:{ from:{...kneel,...raised},to:{...kneel,le:[123,114],lh:[114,84]},equipment:'band',caption:'Pull the elbow down toward the ribs' },
-  raise:{ from:upright,to:{le:[108,66],lh:[73,59]},caption:'Raise to eye level without swinging' },
-  curl:{ from:{le:[118,92],lh:[115,128]},to:{le:[118,92],lh:[103,67]},equipment:'band',caption:'Keep the elbow close as the forearm moves' },
-  pallof:{ from:{le:[108,80],lh:[129,79]},to:{le:[99,82],lh:[73,82]},equipment:'band',caption:'Press out without rotating the chest' },
-  chop:{ from:{le:[173,75],lh:[193,44]},to:{le:[111,109],lh:[87,136]},equipment:'band',caption:'Rotate through hips and ribs along a diagonal' },
-  wallPress:{ from:wall,to:{...wall,head:[82,55],shoulder:[95,75],le:[96,105]},equipment:'wall',caption:'Maintain a straight body line within the approved range' },
-  pushup:{ from:{...lying,head:[69,123],shoulder:[92,137],hip:[148,150],lk:[186,175],lf:[219,194],rk:[190,173],rf:[222,192],le:[92,164],lh:[90,192],re:[97,164],rh:[100,193]},to:{...lying,head:[63,159],shoulder:[90,172],hip:[146,174],lk:[182,180],lf:[219,194],rk:[186,180],rf:[222,194],le:[114,182],lh:[90,192],re:[108,179],rh:[100,193]},caption:'Lower and press while maintaining body alignment' },
-  hang:{ from:{...floating,le:[124,33],lh:[125,16],re:[156,31],rh:[155,16]},to:{...floating,head:[140,23],le:[111,61],lh:[125,16],re:[167,58],rh:[155,16]},equipment:'bar',caption:'Use a secure grip only when hanging is cleared' },
-  dribbleLow:{ from:dribbleBase,to:{...dribbleBase,...handDown,head:[141,89],hip:[136,144]},ball:'low',caption:'Push the foam ball with left fingertips below the knee' },
-  dribble:{ from:dribbleBase,to:{...dribbleBase,...handDown},ball:'mid',caption:'Meet the ball near knee height with the left hand' },
-  dribbleHigh:{ from:{...dribbleBase,le:[105,91],lh:[94,88]},to:dribbleBase,ball:'high',caption:'Left hand controls the higher rebound' },
-  vDribble:{ from:dribbleBase,to:{...dribbleBase,le:[122,121],lh:[132,137]},ball:'wide',caption:'Keep the V tight and within the footprint' },
-  gather:{ from:dribbleBase,to:{...squat,lf:[78,194],le:[109,129],lh:[113,111]},ball:'mid',caption:'Jab or pivot, then gather beside the left hip' },
-  weave:{ from:{...kneel,le:[119,129],lh:[92,153]},to:{...kneel,le:[139,119],lh:[153,151]},ball:'wide',caption:'Guide the ball closely around the legs' },
-  dual:{ from:dribbleBase,to:{...dribbleBase,le:[113,106],lh:[103,93]},ball:'dual',caption:'Toss and catch with the left hand during a rebound' },
+function protect(pose: Pose, on: boolean): Pose {
+  return on ? { ...pose, rh: { r: [15, -32, -5] }, rhPole: [-1, -0.6, 0.35] } : pose
+}
+function buildTimeline(motion: Motion, tempo: string, guard: boolean): Timeline {
+  const keys: TKey[] = motion.keys!.map(key => ({ ...key, d: key.d ?? 0.8, hold: key.hold ?? 0, pose: protect(key.pose, guard) }))
+  const labels = keys.map(key => key.label ?? '')
+  const parts = tempo.split('-').map(Number)
+  if (motion.tempo && parts.length === 3 && parts.every(n => Number.isFinite(n))) {
+    const { down, up, pause = 'down' } = motion.tempo
+    keys[down].d = Math.max(0.5, parts[0])
+    keys[up].d = Math.max(0.45, parts[2])
+    if (parts[1] > 0) keys[pause === 'down' ? down : up].hold = parts[1]
+    labels[down] = (labels[down] || 'Lower') + ' · ' + parts[0] + ' s'
+    labels[up] = (labels[up] || 'Drive') + ' · ' + parts[2] + ' s'
+  }
+  for (let i = 0; i < labels.length; i++) if (!labels[i]) labels[i] = labels[(i - 1 + labels.length) % labels.length] || labels.find(Boolean) || ''
+  const times: number[] = []
+  let clock = 0
+  keys.forEach((key, i) => { if (i) clock += key.d; times.push(clock); clock += key.hold })
+  const T = clock + keys[0].d
+  return { keys, times, T, labels, solved: keys.map(key => solve(key.pose)) }
+}
+function sample(tl: Timeline, time: number): { solved: Solved; label: string } {
+  const t = ((time % tl.T) + tl.T) % tl.T
+  const n = tl.keys.length
+  for (let i = 0; i < n; i++) {
+    const start = tl.times[i], holdEnd = start + tl.keys[i].hold
+    const nextIndex = (i + 1) % n
+    const end = nextIndex ? tl.times[nextIndex] : tl.T
+    if (t < start) continue
+    if (t <= holdEnd) return { solved: tl.solved[i], label: tl.labels[i] }
+    if (t < end) {
+      const next = tl.keys[nextIndex]
+      const u = easeFn[next.ease ?? 'inout']((t - holdEnd) / (end - holdEnd))
+      return { solved: solve(mix(tl.keys[i].pose, next.pose, u, tl.solved[i], tl.solved[nextIndex])), label: tl.labels[nextIndex] }
+    }
+  }
+  return { solved: tl.solved[0], label: tl.labels[0] }
 }
 
-const bones: [Joint, Joint][] = [['head','shoulder'],['shoulder','hip'],['hip','lk'],['lk','lf'],['hip','rk'],['rk','rf'],['shoulder','le'],['le','lh'],['shoulder','re'],['re','rh']]
-const mix = (a: number, b: number, x: number) => a + (b-a)*x
+/* ---------- Drawing helpers ---------- */
+const hex = (value: string) => [1, 3, 5].map(i => parseInt(value.slice(i, i + 2), 16))
+function shade(far: string, near: string, t: number) {
+  const a = hex(far), b = hex(near)
+  return 'rgb(' + a.map((v, i) => Math.round(v + (b[i] - v) * Math.min(1, Math.max(0, t)))).join(',') + ')'
+}
+const BODY = ['#7E93B7', '#F1F5FC'] as const
+const GUARD = ['#3C566D', '#6F90AB'] as const
+type Pt = [number, number, number]
+type Draw = { depth: number; node: ReactNode }
+const anchorPoint = (s: Solved, a: Anchor): V3 => {
+  if (Array.isArray(a)) return a
+  if (a === 'lmid') return [(s.lheel[0] + s.ltoe[0]) / 2, (s.lheel[1] + s.ltoe[1]) / 2, (s.lheel[2] + s.ltoe[2]) / 2]
+  if (a === 'rmid') return [(s.rheel[0] + s.rtoe[0]) / 2, (s.rheel[1] + s.rtoe[1]) / 2, (s.rheel[2] + s.rtoe[2]) / 2]
+  return s[a]
+}
+function hull(points: [number, number][]) {
+  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  const crossZ = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const lower: [number, number][] = [], upper: [number, number][] = []
+  for (const p of pts) { while (lower.length >= 2 && crossZ(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p) }
+  for (const p of pts.reverse()) { while (upper.length >= 2 && crossZ(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p) }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)]
+}
+const poly = (points: [number, number][]) => 'M' + points.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('L') + 'Z'
 
-export function ExerciseAnimation({ exercise, protectedArm }: { exercise: Exercise; protectedArm: boolean }) {
-  const id = useId()
-  const [time,setTime] = useState(0)
-  const [playing, setPlaying] = useState(() => !matchMedia('(prefers-reduced-motion: reduce)').matches)
+type Equip = { band: boolean; db: Motion['db'] | undefined; guard: boolean }
+function equipmentFor(exercise: Exercise, motion: Motion, protectedArm: boolean): Equip {
+  const load = exercise.load + ' ' + exercise.name
+  const band = Boolean(motion.band) && /band/i.test(load)
+  const hasDb = /\bkg\b|dumbbell|\bDB\b/i.test(load)
+  const db = hasDb ? (motion.db ?? (/left/i.test(load) ? 'l' : 'both')) : undefined
+  const guard = protectedArm && motion.arms !== 'both' && !exercise.flag && exercise.category !== 'Forearm Rehab'
+  return { band, db, guard }
+}
+
+function render(motion: Motion, s: Solved, balls: Ball[], cam: Camera, equip: Equip) {
+  const P = (p: V3): Pt => project(p, cam)
+  const center = P(s.pelvis)[2]
+  const shadeAt = (depth: number, guard = false) => guard ? shade(GUARD[0], GUARD[1], 0.5 + (depth - center) / 34) : shade(BODY[0], BODY[1], 0.5 + (depth - center) / 34)
+  const items: Draw[] = []
+  const seg = (a: V3, b: V3, width: number, guard = false, key = '') => {
+    const pa = P(a), pb = P(b), depth = (pa[2] + pb[2]) / 2
+    items.push({ depth, node: <line key={key} x1={pa[0]} y1={pa[1]} x2={pb[0]} y2={pb[1]} stroke={shadeAt(depth, guard)} strokeWidth={width} strokeLinecap="round"/> })
+  }
+  const rightGuard = equip.guard
+  for (const side of ['l', 'r'] as const) {
+    const guard = side === 'r' && rightGuard
+    seg(s[side + 's' as 'ls'], s[side + 'e' as 'le'], 8.5, guard, side + 'ua')
+    seg(s[side + 'e' as 'le'], s[side + 'h' as 'lh'], 7.4, guard, side + 'fa')
+    const hand = P(s[side + 'h' as 'lh'])
+    items.push({ depth: hand[2] + 0.5, node: <circle key={side + 'hand'} cx={hand[0]} cy={hand[1]} r="4.6" fill={shadeAt(hand[2], guard)}/> })
+    seg(s[side + 'hip' as 'lhip'], s[side + 'k' as 'lk'], 11.5, false, side + 'th')
+    seg(s[side + 'k' as 'lk'], s[side + 'a' as 'la'], 9.5, false, side + 'sh')
+    const ankle = P(s[side + 'a' as 'la']), heel = P(s[side + 'heel' as 'lheel']), toe = P(s[side + 'toe' as 'ltoe'])
+    const footDepth = (ankle[2] + toe[2]) / 2
+    items.push({ depth: footDepth, node: <path key={side + 'foot'} d={poly([[ankle[0], ankle[1]], [heel[0], heel[1]], [toe[0], toe[1]]])} fill={shadeAt(footDepth)} stroke={shadeAt(footDepth)} strokeWidth="5" strokeLinejoin="round"/> })
+  }
+  const ls = P(s.ls), rs = P(s.rs), lhip = P(s.lhip), rhip = P(s.rhip), chest = P(s.chest), pelvis = P(s.pelvis), neck = P(s.neck), head = P(s.head)
+  const torsoDepth = (chest[2] + pelvis[2]) / 2
+  const torsoColor = shadeAt(torsoDepth + 4)
+  items.push({ depth: torsoDepth, node: <g key="torso">
+    <path d={poly([[ls[0], ls[1]], [rs[0], rs[1]], [rhip[0], rhip[1]], [lhip[0], lhip[1]]])} fill={torsoColor} stroke={torsoColor} strokeWidth="9" strokeLinejoin="round"/>
+    <line x1={pelvis[0]} y1={pelvis[1]} x2={chest[0]} y2={chest[1]} stroke={torsoColor} strokeWidth="21" strokeLinecap="round"/>
+    <line x1={chest[0]} y1={chest[1]} x2={neck[0]} y2={neck[1]} stroke={torsoColor} strokeWidth="8" strokeLinecap="round"/>
+  </g> })
+  items.push({ depth: head[2], node: <circle key="head" cx={head[0]} cy={head[1]} r="10.6" fill={shadeAt(head[2] + 4)}/> })
+  if (equip.band && motion.band) motion.band.forEach(([a, b], i) => {
+    const pa = P(anchorPoint(s, a)), pb = P(anchorPoint(s, b))
+    const mx = (pa[0] + pb[0]) / 2, my = (pa[1] + pb[1]) / 2 + 3
+    items.push({ depth: Math.max(pa[2], pb[2]) + 2, node: <path key={'band' + i} d={`M${pa[0]} ${pa[1]}Q${mx} ${my} ${pb[0]} ${pb[1]}`} fill="none" stroke="#7FA0FF" strokeWidth="2.8" strokeLinecap="round"/> })
+  })
+  if (equip.db) {
+    const hands: V3[] = equip.db === 'chest' ? [[(s.lh[0] + s.rh[0]) / 2, (s.lh[1] + s.rh[1]) / 2, (s.lh[2] + s.rh[2]) / 2]] :
+      equip.db === 'both' ? [s.lh, s.rh] : equip.db === 'r' ? [s.rh] : [s.lh]
+    const axis = equip.db === 'rack' ? s.torso.R : equip.db === 'chest' ? [0, 1, 0] as V3 : s.level.F
+    hands.forEach((hand, i) => {
+      const a = P([hand[0] - axis[0] * 8, hand[1] - axis[1] * 8, hand[2] - axis[2] * 8]), b = P([hand[0] + axis[0] * 8, hand[1] + axis[1] * 8, hand[2] + axis[2] * 8])
+      items.push({ depth: Math.max(a[2], b[2]) + 3, node: <g key={'db' + i}><line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="#8CA9F5" strokeWidth="3.4"/><circle cx={a[0]} cy={a[1]} r="6.4" fill="#8CA9F5" stroke="#0B111E" strokeWidth="1.2"/><circle cx={b[0]} cy={b[1]} r="6.4" fill="#8CA9F5" stroke="#0B111E" strokeWidth="1.2"/></g> })
+    })
+  }
+  if (motion.pillow) {
+    const at = motion.pillow === 'knees' ? [(s.lk[0] + s.rk[0]) / 2, (s.lk[1] + s.rk[1]) / 2 - 3, (s.lk[2] + s.rk[2]) / 2] as V3 : motion.pillow
+    const p = P(at)
+    items.push({ depth: p[2] + 1, node: <ellipse key="pillow" cx={p[0]} cy={p[1]} rx="11" ry="7" fill="#9FB1CF" stroke="#5A7D9A"/> })
+  }
+  balls.forEach((ball, i) => {
+    const p = P(ball.p)
+    items.push({ depth: p[2] + 1, node: ball.kind === 'foam'
+      ? <g key={'ball' + i}><circle cx={p[0]} cy={p[1]} r={ball.r} fill="#E8853D"/><path d={`M${p[0] - ball.r} ${p[1]}h${ball.r * 2}M${p[0]} ${p[1] - ball.r}v${ball.r * 2}`} stroke="#7A3B12" strokeWidth="1.2" opacity=".7"/></g>
+      : <circle key={'ball' + i} cx={p[0]} cy={p[1]} r={ball.r + 0.6} fill="#CDE05A"/> })
+  })
+  items.sort((a, b) => a.depth - b.depth)
+  return items.map(item => item.node)
+}
+
+function scenery(motion: Motion, cam: Camera, box: [number, number, number, number], s: Solved) {
+  const P = (p: V3) => project(p, cam)
+  const [x0, y0, w] = box
+  const nodes: ReactNode[] = []
+  const floorY = P([0, 0, 0])[1]
+  if (cam.tilt < 6) nodes.push(<path key="floor" d={`M${x0} ${floorY}H${x0 + w}`} stroke="#4A6B82" strokeWidth="1.5"/>)
+  else {
+    const corners: V3[] = [[-170, 0, -90], [170, 0, -90], [170, 0, 90], [-170, 0, 90]]
+    nodes.push(<path key="floor" d={poly(corners.map(c => { const p = P(c); return [p[0], p[1]] }))} fill="#101a2c" stroke="#2a3b55"/>)
+  }
+  if (motion.mat) {
+    const corners: V3[] = [[-105, 0.4, -34], [105, 0.4, -34], [105, 0.4, 34], [-105, 0.4, 34]]
+    nodes.push(<path key="mat" d={poly(corners.map(c => { const p = P(c); return [p[0], p[1]] }))} fill="#1B2A45" stroke="#34507a" strokeWidth="1.5"/>)
+  }
+  if (motion.wall !== undefined && Math.abs(Math.cos(cam.yaw * Math.PI / 180)) > 0.3) {
+    const corners: V3[] = [[motion.wall, 0, -70], [motion.wall, 230, -70], [motion.wall, 230, 70], [motion.wall, 0, 70]]
+    const pts = corners.map(c => { const p = P(c); return [p[0], p[1]] as [number, number] })
+    nodes.push(<path key="wall" d={poly(hull(pts))} fill="#16223a" stroke="#5A7D9A" strokeWidth="2.5"/>)
+  }
+  if (motion.post) {
+    const a = P(motion.post), b = P([motion.post[0], 140, motion.post[2]])
+    nodes.push(<line key="post" x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} stroke="#5A7D9A" strokeWidth="4" strokeLinecap="round"/>)
+  }
+  for (const [i, b] of [...(motion.boxes ?? []), ...(motion.towel ? [{ x: [-8, 10] as [number, number], z: [-20, 20] as [number, number], h: 3 }] : [])].entries()) {
+    const corners: V3[] = []
+    for (const x of b.x) for (const z of b.z) for (const y of [0, b.h]) corners.push([x, y, z])
+    const pts = corners.map(c => { const p = P(c); return [p[0], p[1]] as [number, number] })
+    const top: V3[] = [[b.x[0], b.h, b.z[0]], [b.x[1], b.h, b.z[0]], [b.x[1], b.h, b.z[1]], [b.x[0], b.h, b.z[1]]]
+    nodes.push(<g key={'box' + i}><path d={poly(hull(pts))} fill="#16233A" stroke="#5A7D9A" strokeWidth="1.8" strokeLinejoin="round"/><path d={poly(top.map(c => { const p = P(c); return [p[0], p[1]] }))} fill="#1d2d48" stroke="#6d8fac" strokeWidth="1.4"/></g>)
+  }
+  motion.tape?.forEach((line, i) => nodes.push(<path key={'tape' + i} d={'M' + line.map(p => { const q = P(p); return q[0] + ' ' + q[1] }).join('L')} stroke="#8eaac1" strokeWidth="2.4" strokeDasharray="7 4" fill="none"/>))
+  const shadow = P([s.pelvis[0], 0, s.pelvis[2]])
+  const height = Math.max(0, Math.min(1, (s.pelvis[1] - 10) / 120))
+  nodes.push(<ellipse key="shadow" cx={shadow[0]} cy={shadow[1] + 1} rx={20 + 14 * height} ry={3 + 7 * Math.sin(cam.tilt * Math.PI / 180) + 1} fill="#000" opacity={0.28 - 0.08 * Math.max(0, (s.pelvis[1] - 95) / 30)}/>)
+  return nodes
+}
+
+/* ---------- Component ---------- */
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(() => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches)
+  useEffect(() => {
+    const query = matchMedia('(prefers-reduced-motion: reduce)')
+    const change = () => setReduced(query.matches)
+    query.addEventListener('change', change)
+    return () => query.removeEventListener('change', change)
+  }, [])
+  return reduced
+}
+function useClock(playing: boolean, reset: string) {
+  const [time, setTime] = useState(0)
+  useEffect(() => { setTime(0) }, [reset])
   useEffect(() => {
     if (!playing) return
-    const start = performance.now()
     let frame = 0
-    function draw(now: number) {
-      setTime((now - start) % 2600 / 2600)
-      frame = requestAnimationFrame(draw)
+    let last = performance.now()
+    const tick = (now: number) => {
+      const dt = Math.min(0.1, (now - last) / 1000)
+      last = now
+      setTime(value => value + dt)
+      frame = requestAnimationFrame(tick)
     }
-    frame = requestAnimationFrame(draw)
+    frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [playing, exercise.id])
-  const motion = motions[exercise.move]
-  if (!motion) return <div className="diagram static-diagram">Use the execution cues for this activity.</div>
-  const from = { ...upright, ...motion.from }
-  const to = { ...upright, ...motion.to }
-  const p = 0.5 - Math.cos(time * 2 * Math.PI) / 2
-  const mid = motion.via ? { ...upright, ...motion.via } : undefined
-  const a = mid && p > 0.5 ? mid : from
-  const b = mid && p <= 0.5 ? mid : to
-  const fraction = mid ? (p <= .5 ? p * 2 : (p - .5) * 2) : p
-  const current = Object.fromEntries(Object.keys(a).map(raw => {
-    const key = raw as Joint
-    return [key, [mix(a[key][0], b[key][0], fraction), mix(a[key][1], b[key][1], fraction)]]
-  })) as Pose
+  }, [playing])
+  return time
+}
 
-  if (protectedArm && !exercise.flag && exercise.category !== 'Forearm Rehab') {
-    current.re = [current.shoulder[0] + 13, current.shoulder[1] + 24]
-    current.rh = [current.shoulder[0] + 7, current.shoulder[1] + 36]
-  }
-  const hand = current.lh
-  const ballX = motion.ball === 'foot' ? current.lf[0] :
-    motion.ball === 'hold' && exercise.move === 'adductor' ? current.lk[0] : hand[0] - 5
-  const ballY = motion.ball === 'foot' ? 191 : motion.ball === 'hold' ? (exercise.move === 'adductor' ? current.lk[1] + 4 : hand[1]) :
-    motion.ball === 'toss' ? hand[1] - 18 - 25*p : mix(motion.ball === 'high' ? 89 : motion.ball === 'low' ? 154 : 125, 190, Math.abs(Math.sin(time * 4 * Math.PI)))
+type Props = { exercise: Exercise; protectedArm: boolean; playing?: boolean; compact?: boolean; controls?: boolean; className?: string }
+export function ExerciseAnimation({ exercise, protectedArm, playing, compact = false, controls = !compact, className = '' }: Props) {
+  const id = useId()
+  const reduced = useReducedMotion()
+  const [override, setOverride] = useState<boolean>()
+  const motion = motionFor(exercise.move)
+  const run = (playing ?? true) && (override ?? !reduced)
+  const time = useClock(run, exercise.id + exercise.move)
+  const title = exercise.name + (motion ? '. ' + motion.caption : '') + (protectedArm ? '. Right arm shown in muted blue to protect the forearm.' : '')
 
-  return <figure className="diagram">
-    <svg viewBox="0 0 280 218" role="img" aria-labelledby={id}>
-      <title id={id}>{exercise.name}. {motion.caption}{protectedArm ? '. Right arm shown in muted stone blue.' : ''}</title>
-      <path d="M32 194h216M32 199h216" stroke="#4A6B82" opacity=".56" fill="none"/>
-      {motion.equipment === 'bench' && <path d="M167 193v-38h63v38" fill="#131C2E" stroke="#5A7D9A" strokeWidth="2"/>}
-      {motion.equipment === 'wall' && <path d={exercise.move === 'wallSit' ? 'M184 36v158' : 'M69 36v158'} stroke="#5A7D9A" strokeWidth="3"/>}
-      {motion.equipment === 'bar' && <path d="M84 16h113" stroke="#5A7D9A" strokeWidth="4"/>}
-      {motion.equipment === 'tape' && <path d="M119 193l-9 8m56-8 9 8" stroke="#8eaac1" strokeWidth="2"/>}
-      {motion.equipment === 'band' && <path d={`M45 ${exercise.move === 'pulldown' ? 26 : 121} L${hand[0]} ${hand[1]}`} stroke="#5A7D9A" strokeWidth="2"/>}
-      {bones.map(([start,end]) => {
-        const right = end === 're' || end === 'rh'
-        return <line key={end} x1={current[start][0]} y1={current[start][1]} x2={current[end][0]} y2={current[end][1]} stroke={right && protectedArm ? '#5A7D9A' : '#e0ebfa'} strokeWidth={end === 'hip' ? 15 : 7} strokeLinecap="round"/>
-      })}
-      {(['shoulder','hip','le','lk','rk'] as const).map(joint => <circle key={joint} cx={current[joint][0]} cy={current[joint][1]} r="3.4" fill="#809bc2"/>)}
-      <circle cx={current.head[0]} cy={current.head[1]} r="12" fill="#e0ebfa"/>
-      {exercise.load.startsWith('17 kg · left') && <path d={`M${hand[0]-8} ${hand[1]}h16m-16-6v12m16-12v12`} stroke="#8CA9F5" strokeWidth="4" strokeLinecap="round"/>}
-      {motion.ball && <circle cx={ballX} cy={ballY} r={motion.ball === 'toss' || motion.ball === 'hold' ? 5 : 8} fill="#8CA9F5"/>}
-      {motion.ball === 'dual' && <circle cx={hand[0]-6} cy={hand[1]-17-24*p} r="4" fill="#d7e3ff"/>}
-      <circle cx={hand[0]} cy={hand[1]} r="4" fill="#8CA9F5"/>
+  const model = useMemo(() => {
+    if (!motion || motion.closeup || !motion.keys) return undefined
+    const equip = equipmentFor(exercise, motion, protectedArm)
+    const tl = buildTimeline(motion, exercise.tempo, equip.guard)
+    const cam: Camera = { yaw: motion.cam?.yaw ?? 0, tilt: motion.cam?.tilt ?? 0 }
+    const ctx = { T: tl.T, keyTime: (i: number) => tl.times[i] ?? 0, at: (t: number) => sample(tl, t).solved }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    const steps = 28
+    for (let i = 0; i < steps; i++) {
+      const t = (i / steps) * tl.T
+      const s = sample(tl, t).solved
+      const points: V3[] = [s.head, s.lh, s.rh, s.la, s.ra, s.lk, s.rk, s.ltoe, s.rtoe, s.lheel, s.rheel, s.pelvis, s.chest]
+      for (const ball of motion.ball?.(t, ctx) ?? []) points.push(ball.p)
+      for (const p of points) {
+        const [x, y] = project(p, cam)
+        minX = Math.min(minX, x - 14); maxX = Math.max(maxX, x + 14); minY = Math.min(minY, y - 14); maxY = Math.max(maxY, y + 10)
+      }
+    }
+    for (const b of motion.boxes ?? []) for (const x of b.x) for (const z of b.z) for (const y of [0, b.h]) {
+      const [px, py] = project([x, y, z], cam)
+      minX = Math.min(minX, px - 4); maxX = Math.max(maxX, px + 4); minY = Math.min(minY, py - 4); maxY = Math.max(maxY, py + 4)
+    }
+    const floor = project([0, 0, 0], cam)[1]
+    maxY = Math.max(maxY, floor + 8)
+    let w = maxX - minX, h = maxY - minY
+    const aspect = 4 / 3
+    if (w / h < aspect) { const extra = h * aspect - w; minX -= extra / 2; w = h * aspect } else { const extra = w / aspect - h; minY -= extra * 0.7; h = w / aspect }
+    const pad = Math.max(w, h) * 0.06
+    const view: [number, number, number, number] = [minX - pad, minY - pad, w + pad * 2, h + pad * 2]
+    return { tl, cam, ctx, view, equip }
+  }, [exercise.id, exercise.move, exercise.tempo, exercise.load, motion, protectedArm])
+
+  let figure: ReactNode
+  let label = ''
+  if (motion?.closeup) {
+    const shown = run ? time : closeUpLength(motion.closeup) * 0.3
+    const view = CloseUpSvg({ kind: motion.closeup, time: shown, title })
+    figure = view.svg
+    label = view.label
+  } else if (model) {
+    const t = run ? time : model.tl.times[Math.min(1, model.tl.times.length - 1)] + (model.tl.keys[1]?.hold ?? 0) / 2
+    const frame = sample(model.tl, t)
+    label = frame.label
+    const balls = motion!.ball?.(((t % model.tl.T) + model.tl.T) % model.tl.T, model.ctx) ?? []
+    figure = <svg viewBox={model.view.join(' ')} role="img" aria-labelledby={id} preserveAspectRatio="xMidYMid meet">
+      <title id={id}>{title}</title>
+      {scenery(motion!, model.cam, model.view, frame.solved)}
+      {render(motion!, frame.solved, balls, model.cam, model.equip)}
     </svg>
-    <figcaption>{motion.caption}<button className="quiet" type="button" onClick={() => setPlaying(!playing)}>{playing ? 'Pause demo' : 'Play demo'}</button></figcaption>
+  } else {
+    return <figure className={'anim anim-empty ' + (compact ? 'compact ' : '') + className}><ClipboardList size={compact ? 22 : 34}/><figcaption>{compact ? 'No demo' : 'No movement demo for this step. Follow the cues.'}</figcaption></figure>
+  }
+  return <figure className={'anim ' + (compact ? 'compact ' : '') + className}>
+    <div className="anim-stage">{figure}</div>
+    {!compact && label && <span className="anim-label" aria-live="off">{label}</span>}
+    {controls && <button type="button" className="anim-toggle" onClick={() => setOverride(!run)} aria-label={run ? 'Pause demo' : 'Play demo'} title={run ? 'Pause demo' : 'Play demo'}>{run ? <Pause size={15}/> : <Play size={15}/>}</button>}
+    {!compact && motion && <figcaption>{motion.caption}</figcaption>}
   </figure>
 }
+export function hasMotion(exercise: Exercise) { return Boolean(motionFor(exercise.move)) }

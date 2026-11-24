@@ -1,7 +1,8 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { circuitRows, days, foamRows, phases } from '../src/data/comebackProgram'
-import { activePhase, blockedReason, clearanceEarliest, eligiblePhase, fresh, plusDays, prescribed, programSections, queueFor, recoveryReasons, scheduleConflicts, statsFor, weightTrend, weekFor, workSeconds, type State } from '../src/model'
+import { circuit, circuitRows, cooldown, dailyMobility, days, expansion, foamRows, phases, rehabRows, sundayFlow, sundayMobility, warmUp } from '../src/data/comebackProgram'
+import { motionFor } from '../src/anim/motions'
+import { activePhase, blockedReason, clearanceEarliest, eligiblePhase, fresh, loadKg, plusDays, prescribed, programSections, queueFor, recoveryReasons, scheduleConflicts, sessionDone, statsFor, targetReps, weightTrend, weekFor, workSeconds, type State } from '../src/model'
 import { tempoTicks } from '../src/audio'
 
 test('launch falls in Week 3 and progression changes squat, plyos and Saturday intervals', () => {
@@ -20,7 +21,7 @@ test('paired blocks alternate and rest once per round, including uneven groups',
   assert.deepEqual(queue.slice(0,4).map(set => [set.item.block,set.round,set.rest]), [
     ['A1',1,0],['A2',1,90],['A1',2,0],['A2',2,90]
   ])
-  const uneven = queueFor([{id:'main',name:'Main work',rows:days[2].main.slice(3,6)}])
+  const uneven = queueFor([{id:'main',name:'Main work',rows:[{...days[2].main[3],sets:4},days[2].main[4],days[2].main[5]]}])
   assert.equal(uneven.at(-1)?.item.block,'B1')
   assert.equal(uneven.at(-1)?.rest,60)
   assert.equal(tempoTicks('3-1-1').map(tick => tick.phase).join(','),'Lower,Lower,Lower,Pause,Drive')
@@ -63,4 +64,53 @@ test('stats and weight trend use stored logs, not planned sets', () => {
   assert.match(weightTrend(state,today).advice,/−200/)
   state.logs['2026-11-25'] = {check:{weight:73}}
   assert.equal(weightTrend(state,today).advice,'')
+})
+
+const everything = [...days.flatMap(day => day.main), ...warmUp, ...rehabRows, ...dailyMobility, ...sundayMobility, ...cooldown, ...foamRows, ...circuit, ...expansion, ...phases.flatMap(phase => phase.rows)]
+
+test('no exercise needs a door, door anchor or pull-up bar', () => {
+  for (const item of everything) {
+    const text = [item.name, item.cue, item.mistake, item.load].join(' ')
+    assert.doesNotMatch(text, /door|pull-?ups?|dead hang|\bhanging\b|high anchor|anchor point|anchored/i, item.name)
+  }
+})
+
+test('workout, stretching, forearm rehab and ball handling are separate sessions', () => {
+  const key = '2026-11-23'
+  assert.deepEqual(programSections(fresh, key, 'workout', key).map(section => section.id), ['warm', 'main', 'cooldown'])
+  assert.deepEqual(programSections(fresh, '2026-11-28', 'workout', '2026-11-28').map(section => section.id), ['warm', 'main', 'circuit', 'finisher', 'cooldown'])
+  const workout = programSections(fresh, key, 'workout', key).flatMap(section => section.rows)
+  assert.ok(workout.every(item => item.category !== 'Forearm Rehab'))
+  assert.deepEqual(programSections(fresh, key, 'rehab', key)[0].rows, rehabRows)
+  assert.deepEqual(programSections(fresh, key, 'mobility', key)[0].rows, dailyMobility)
+  assert.equal(programSections(fresh, '2026-11-29', 'mobility', '2026-11-29')[0].rows.length, sundayFlow.length)
+  assert.equal(sundayFlow.length, dailyMobility.length + sundayMobility.length)
+  assert.ok(sessionDone({ done: { mobility: true } }, 'mobility'))
+  assert.ok(sessionDone({ rehab: true }, 'rehab'))
+})
+
+test('superset blocks keep the same set count every week so rounds stay clean', () => {
+  for (let week = 1; week <= 8; week++) for (let day = 0; day < 7; day++) {
+    const groups = new Map<string, number[]>()
+    for (const item of prescribed(day, week)) {
+      const letter = /^([A-Z])\d+$/.exec(item.block)?.[1]
+      if (letter) groups.set(letter, [...(groups.get(letter) ?? []), item.sets])
+    }
+    for (const [letter, sets] of groups) assert.equal(new Set(sets).size, 1, `week ${week} day ${day} block ${letter}: ${sets}`)
+  }
+})
+
+test('every movement has an animated guide', () => {
+  const missing = [...new Set(everything.map(item => item.move))].filter(move => move !== 'plan' && !motionFor(move))
+  assert.deepEqual(missing, [])
+})
+
+test('rep and load parsing for set logging', () => {
+  assert.equal(targetReps('10'), 10)
+  assert.equal(targetReps('8 / leg'), 8)
+  assert.equal(targetReps('30 s / leg'), undefined)
+  assert.equal(targetReps('10 × 3 s'), 10)
+  assert.equal(loadKg('17 kg · left hand only'), 17)
+  assert.equal(loadKg('5–10 kg or band'), undefined)
+  assert.equal(loadKg('Light band'), undefined)
 })

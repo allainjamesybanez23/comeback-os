@@ -20,13 +20,29 @@ A Windows desktop training and recovery app. The installer and portable edition 
 
 The included executables were compiled from electron-builder's Windows app directory with the native x64 NSIS compiler. To reproduce that packaging path, run `pwsh -File scripts/package-x64.ps1 -MakeNsis "C:\path\to\makensis.exe"` with the [native x64 NSIS tool from MSYS2](https://packages.msys2.org/packages/mingw-w64-ucrt-x86_64-nsis).
 
-## Workout controls
+## Sessions
 
-Open a session in **Training**. Press Space to start or pause an interval, rest clock or enabled tempo metronome. Enter starts a timed set, then logs the set after the interval ends. For rep-based work, Enter logs the set immediately. Linked blocks alternate in order and rest after the completed round. The arrow keys move between exercises. M toggles synthesized audio. A timed set with an unknown jump count asks for actual contacts before it can be logged.
+Each day has four separate sessions on the **Today** screen:
 
-Shortcuts are active in the workout window and yield to text inputs and dialogs. To use the keys in the background, enable the Windows option in the player. This temporarily reserves those five keys while the workout is open and the app is unfocused. Foreground shortcuts remain available if Windows cannot register a background key.
+- **Workout** – warm-up → main work → cooldown. Supersets alternate (A1 → A2 → rest → repeat) and every block uses the same set count, so rounds stay clean.
+- **Stretching** – a floor-to-standing flow (long flow on Sunday).
+- **Forearm rehab** – range of motion → light strength → grip → toss → stretch.
+- **Ball handling** – silent left-hand foam-ball drills.
 
-Logs, schedule swaps, benchmark measurements, settings and edits are stored in IndexedDB in the Windows Electron user profile. There's no account or server. Set progress survives a restart. The active timer and background-key opt-in reset when you leave the player.
+Equipment: one 17 kg dumbbell, light bands, a bench, a low step, a wall, a foam ball, a tennis ball, a pillow and floor tape. Nothing needs a door anchor or pull-up bar.
+
+## Workout player
+
+The animated movement guide sits beside the timer for every set, and shows the next exercise during rest. Timed sets get a 5-second get-ready countdown; rests flow straight into the next set. The offline voice coach (Windows voices) calls out exercises, rests and countdowns.
+
+- **Enter** – log the set / start a timed set / skip rest
+- **Space** – pause or resume the clock (or the tempo metronome on rep sets)
+- **← →** – previous / next exercise
+- **V** – voice coach on/off · **M** – beeps on/off · **Esc** – leave (progress is saved)
+
+Rep sets log actual reps and kg; the guide drawer shows your history and best set. Timed plyo sets with an unknown jump count ask for foot contacts before logging. The finish screen shows time, sets, reps, volume, streak, weekly rings and any badge unlocked.
+
+Logs, schedule swaps, benchmark measurements, settings and edits are stored in IndexedDB in the Windows Electron user profile. There's no account or server.
 
 ## Program decisions
 
@@ -40,7 +56,8 @@ Logs, schedule swaps, benchmark measurements, settings and edits are stored in I
 
 - `src/data/comebackProgram.ts` holds the curriculum, progression and mindset library.
 - `src/model.ts` generates dated prescriptions, set order, safety rules and tracker calculations.
-- `src/components/ExerciseAnimation.tsx` renders offline SVG motion guides.
+- `src/anim/rig.ts` is a small 3D stick-figure rig with two-bone IK (fixed bone lengths, planted feet). `src/anim/motions.ts` holds the keyframed motion for every exercise, and `src/anim/CloseUp.tsx` draws the forearm and toe close-ups. `src/components/ExerciseAnimation.tsx` renders them offline as SVG.
+- `src/components/WorkoutPlayer.tsx` is the session player; `Today.tsx`, `Sessions.tsx`, `Library.tsx` and `Progress.tsx` are the main screens. `src/achievements.ts` computes badges and `src/voice.ts` is the voice coach.
 - `src/store.ts` owns local storage. `electron/main.cjs` and `electron/preload.cjs` own the Windows shell and the narrow system integration.
 - `DESIGN.md` and `PRODUCT.md` capture the design and product context.
 

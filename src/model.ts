@@ -1,15 +1,18 @@
-import { circuitRows, cooldown, dailyMobility, days, expansion, foamRows, phases, rehabRows, sundayMobility, warmUp, type Exercise, type Section } from './data/comebackProgram'
+import { circuitRows, cooldown, dailyMobility, days, expansion, foamRows, phases, rehabRows, sundayFlow, warmUp, type Exercise, type Section } from './data/comebackProgram'
 
 export const startDate = '2026-11-09'
 export const clearanceEarliest = '2027-01-01'
 export type Status = 'full' | 'recovery' | 'skipped'
 export type Module = 'workout' | 'mobility' | 'rehab' | 'foam'
+export const moduleOrder: Module[] = ['workout', 'mobility', 'rehab', 'foam']
+export const moduleLabel: Record<Module, string> = { workout: 'Workout', mobility: 'Stretching', rehab: 'Forearm rehab', foam: 'Ball handling' }
 export type Check = { kcal?: number; protein?: number; water?: number; sleep?: number; weight?: number; hr?: number; soreness?: number }
 export type Benchmark = { ankleL?: number; ankleR?: number; squat?: number; hipL?: number; hipR?: number; toes?: boolean }
-export type SetLog = { contacts: number }
+export type SetLog = { contacts: number; reps?: number; kg?: number; at?: number }
 export type DayLog = {
   status?: Status; reason?: string; pain?: number; stopped?: string[];
   sets?: Record<string, SetLog>; check?: Check; contacts?: number; rehab?: boolean
+  done?: Partial<Record<Module, boolean>>; time?: Partial<Record<Module, number>>
 }
 export type State = {
   version: 1
@@ -21,11 +24,13 @@ export type State = {
   phase: number
   audio: boolean
   tempo: boolean
+  voice?: boolean
+  autoflow?: boolean
   hrBaseline?: number
   weekOverride?: number
   deload?: string
 }
-export const fresh: State = { version: 1, logs: {}, edits: {}, schedule: {}, benchmarks: {}, clarity: '', phase: 0, audio: true, tempo: false }
+export const fresh: State = { version: 1, logs: {}, edits: {}, schedule: {}, benchmarks: {}, clarity: '', phase: 0, audio: true, tempo: false, voice: true, autoflow: true }
 export const dateKey = (date: Date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
   return local.toISOString().slice(0, 10)
@@ -88,21 +93,21 @@ export function prescribed(day: number, week: number, phase = 0) {
     if (isPlyo && item.category === 'Plyometrics & Speed') {
       if (week === 3 && block === 'B') item.sets += 1
       if (week === 4 || week === 8) item.sets = Math.max(1, Math.ceil(item.sets * 2 / 3))
-      if (week === 2 && (item.id === 'wed-A1' || item.id === 'sat-B2')) item.sets += 1
+      if (week === 2 && ((day === 2 && block === 'A') || (day === 5 && block === 'B'))) item.sets += 1
       if (week === 5 && item.id === 'wed-B2') {
         item.name = 'Low-step depth jump'
         item.adjustment = 'Step down, land softly, and rebound only while controlled'
       }
       if (week === 6 && item.id === 'wed-B1') {
         item.adjustment = 'Two consecutive jumps, then stick the landing'
-        item.contacts = 12
+        item.contacts = 16
       }
       if (week === 7) item.rest = Math.max(item.rest, 75)
       if (week === 8 && item.id === 'wed-B1') item.adjustment = 'Retest controlled jump reach'
     }
+    if (isUpper && week >= 5 && week <= 7 && block === 'A') item.sets += 1
     if (isUpper && item.load === 'Light band') {
-      if (week >= 3 && week <= 7 && ['tue-A1','tue-A2','fri-A1','fri-B1'].includes(item.id)) item.load = 'Left: progress band · right: light'
-      if (week >= 5 && week <= 7 && block === 'A') item.sets += 1
+      if (week >= 3 && week <= 7 && ['tue-A1','tue-A2','fri-A2','fri-B1'].includes(item.id)) item.load = 'Left: progress band · right: light'
       if (week === 8) item.load = 'Easy band tension'
     }
     return item
@@ -113,32 +118,31 @@ export function programSections(state: State, key: string, module: Module, today
   const phase = Math.min(activePhase(state, today), activePhase(state, key))
   const week = weekFor(state, key)
   const index = dayFor(state, key)
-  const rehab: Section = { id: 'rehab', name: 'Forearm rehab', duration: '10 min', rows: rehabRows }
-  const mob: Section = { id: 'mobility', name: index === 6 ? 'Long mobility' : 'Mobility flow', duration: index === 6 ? '25 min' : '12 min', rows: index === 6 ? [...dailyMobility, ...sundayMobility] : dailyMobility }
-  if (module === 'rehab') return [rehab]
-  if (module === 'mobility') return [mob]
+  if (module === 'rehab') return [{ id: 'rehab', name: 'Forearm rehab', rows: rehabRows }]
+  if (module === 'mobility') return [{ id: 'mobility', name: index === 6 ? 'Long stretch flow' : 'Stretch flow', rows: index === 6 ? sundayFlow : dailyMobility }]
   if (module === 'foam') return [
-    { id: 'foam', name: 'Left-hand flow', duration: '12–15 min target', rows: foamRows },
+    { id: 'foam', name: 'Left-hand handles', rows: foamRows },
     ...(phase ? [{ id: 'foam-expansion', name: 'Cleared two-hand expansion', rows: expansion }] : []),
   ]
   const edited = state.edits[editKey(week,index,phase)]
   let main = (edited ?? prescribed(index,week,phase)).filter(item => (item.minPhase ?? 0) <= phase)
   const reduced = Boolean(state.deload && key >= state.deload && distance(state.deload,key) < 7)
   if (reduced && days[index].level === 'Hard') main = main.map(item => ({ ...item, sets: Math.max(1, Math.round(item.sets * 2 / 3)) }))
-  const setMain: Section = { id: 'main', name: days[index].title, rows: index === 6 ? main.filter(item => item.id !== 'sun-E') : main }
-  const finish: Section = { id: 'cooldown', name: 'Cooldown', duration: '5 min', rows: cooldown }
-  if (index === 6) return [setMain, mob, rehab, { id: 'prep', name: 'Weekly prep', rows: main.filter(item => item.id === 'sun-E') }, finish]
-  const sections = [{ id: 'warm', name: 'Dynamic warm-up', duration: '10 min', rows: warmUp }, setMain]
+  const setMain: Section = { id: 'main', name: 'Main work', rows: main }
+  if (index === 6) return [
+    { ...setMain, name: 'Recovery work', rows: main.filter(item => item.id !== 'sun-E') },
+    ...(main.some(item => item.id === 'sun-E') ? [{ id: 'prep', name: 'Weekly prep', rows: main.filter(item => item.id === 'sun-E') }] : []),
+  ]
+  const sections: Section[] = [{ id: 'warm', name: 'Warm-up', rows: warmUp }, setMain]
   if (index === 5) {
     let rounds = circuitRows(week)
     if (reduced) rounds = rounds.slice(0, Math.max(1, Math.round(rounds.length / 5 * 2 / 3)) * 5)
-    const withoutFinisher = { ...setMain, rows: main.filter(item => item.id !== 'sat-E') }
     const finisher = main.find(item => item.id === 'sat-E')
-    sections[1] = withoutFinisher
+    sections[1] = { ...setMain, rows: main.filter(item => item.id !== 'sat-E') }
     sections.push({ id: 'circuit', name: 'Dorm conditioning circuit', rows: rounds })
     if (finisher) sections.push({ id: 'finisher', name: 'Core finisher', rows: [finisher] })
   }
-  return [...sections, rehab, finish, mob]
+  return [...sections, { id: 'cooldown', name: 'Cooldown', rows: cooldown }]
 }
 
 export type Step = { id: string; section: string; item: Exercise; round: number; rest: number; nextInGroup: boolean }
@@ -228,4 +232,62 @@ export function weightTrend(state: State, today: string) {
   const advice = delta !== undefined && delta > 0.5 ? 'Program adjustment: −200 kcal/day' :
     a.count >= 3 && b.count >= 3 && c.count >= 3 && c.average! - a.average! <= 0 ? 'Program adjustment: +200 kcal/day' : ''
   return { weeks, delta, advice }
+}
+
+/* ---------- Session helpers ---------- */
+export function sessionDone(log: DayLog | undefined, module: Module) {
+  if (!log) return false
+  if (log.done?.[module]) return true
+  if (module === 'workout') return log.status === 'full'
+  if (module === 'rehab') return Boolean(log.rehab)
+  return false
+}
+export function targetReps(reps: string) {
+  const match = /^(\d+)/.exec(reps.trim())
+  return match && !/\b(s|min)\b/.test(reps.split(/\s*[×x+]\s*/)[0]) ? Number(match[1]) : undefined
+}
+export function loadKg(load: string) {
+  if (/\d\s*[–-]\s*\d+\s*kg/i.test(load)) return undefined
+  const match = /(\d+(?:\.\d+)?)\s*kg/i.exec(load)
+  return match ? Number(match[1]) : undefined
+}
+const perSide = (reps: string) => /\/\s*(leg|side|arm|foot)|each/.test(reps)
+export function stepSeconds(item: Exercise) {
+  const work = workSeconds(item)
+  if (work) return work
+  const reps = targetReps(item.reps) ?? 10
+  const tempo = item.tempo ? item.tempo.split('-').map(Number).reduce((a, b) => a + b, 0) : 2.6
+  return Math.min(150, Math.max(25, reps * tempo * (perSide(item.reps) ? 2 : 1)))
+}
+export function sessionMinutes(sections: Section[]) {
+  const queue = queueFor(sections)
+  const total = queue.reduce((sum, step) => sum + stepSeconds(step.item) + step.rest + 8, 0)
+  return Math.max(5, Math.round(total / 60))
+}
+export function sessionStats(sections: Section[], log: DayLog) {
+  const queue = queueFor(sections)
+  const done = queue.filter(step => log.sets?.[step.id]).length
+  return { sets: queue.length, done, exercises: new Set(queue.map(step => step.item.id)).size }
+}
+export type History = { date: string; sets: SetLog[] }[]
+export function historyFor(state: State, id: string, before?: string): History {
+  return Object.entries(state.logs)
+    .filter(([key, log]) => (!before || key < before) && log.sets && Object.keys(log.sets).some(set => set.startsWith(id + ':')))
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([date, log]) => ({ date, sets: Object.entries(log.sets!).filter(([set]) => set.startsWith(id + ':'))
+      .sort(([a], [b]) => Number(a.split(':')[1]) - Number(b.split(':')[1])).map(([, set]) => set) }))
+}
+export function bestSet(history: History) {
+  let best: SetLog | undefined
+  for (const day of history) for (const set of day.sets) {
+    if (set.reps === undefined) continue
+    if (!best || (set.kg ?? 0) > (best.kg ?? 0) || ((set.kg ?? 0) === (best.kg ?? 0) && set.reps > (best.reps ?? 0))) best = set
+  }
+  return best
+}
+export function weekRings(state: State, today: string) {
+  const start = monday(today)
+  const dates = Array.from({ length: 7 }, (_, i) => plusDays(start, i))
+  const count = (module: Module) => dates.filter(date => sessionDone(state.logs[date], module)).length
+  return { workout: count('workout'), rehab: count('rehab'), mobility: count('mobility'), foam: count('foam'), goal: 7, dates }
 }

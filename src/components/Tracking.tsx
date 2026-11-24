@@ -22,7 +22,7 @@ export function Stats({ state, today }: Pick<TrackerProps, 'state' | 'today'>) {
     })}
   </dl>
 }
-export function Calendar({ state, update, today }: TrackerProps) {
+export function Calendar({ state, update, today, stats = true }: TrackerProps & { stats?: boolean }) {
   const [view, setView] = useState<'month' | 'year'>('month')
   const [cursor, setCursor] = useState(today.slice(0,7))
   const [selected, setSelected] = useState('')
@@ -71,7 +71,7 @@ export function Calendar({ state, update, today }: TrackerProps) {
     </button>
   }
   return <div className="page-content">
-    <Stats state={state} today={today}/>
+    {stats && <Stats state={state} today={today}/>}
     <section className="panel calendar">
       <div className="panel-header"><div><h2>{view === 'month' ? dateLabel(first,{month:'long',year:'numeric'}) : year}</h2><p>Training and recovery history</p></div><div className="compact-actions">
         <div className="segmented"><button className={view === 'month' ? 'selected' : ''} aria-pressed={view === 'month'} onClick={() => setView('month')}>Month</button><button className={view === 'year' ? 'selected' : ''} aria-pressed={view === 'year'} onClick={() => setView('year')}>Year</button></div>

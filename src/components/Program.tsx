@@ -1,13 +1,14 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, CalendarDays, Check, ChevronRight, Copy, Dumbbell, LockKeyhole, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, CalendarDays, Check, ChevronRight, Copy, LockKeyhole, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import { categories, circuit, circuitDoses, cooldown, dailyMobility, days, expansion, foamRows, phases, progression, rehabRows, sundayMobility, warmUp, type Category, type Exercise } from '../data/comebackProgram'
 import { activePhase, clearanceEarliest, dateLabel, dayFor, editKey, eligiblePhase, monday, plusDays, prescribed, scheduleConflicts, startDate, weekFor, type State } from '../model'
 import type { Update } from '../store'
-import { CategoryPill, Dialog, Empty, ExerciseRow } from './ui'
+import { CategoryPill, Dialog, Empty } from './ui'
 
 type Props = { state: State; update: Update; today: string }
 type Editor = { mode: 'new' | 'edit' | 'swap'; item: Exercise }
 export const library = [...days.flatMap(day => day.main), ...warmUp, ...rehabRows, ...dailyMobility, ...sundayMobility, ...cooldown, ...foamRows, ...circuit, ...expansion, ...phases.flatMap(phase => phase.rows)]
+  .filter((item, i, all) => all.findIndex(other => other.name === item.name) === i)
 
 export function Program({ state, update, today, navigate }: Props & { navigate(date: string): void }) {
   const [tab,setTab] = useState<'schedule' | 'editor' | 'progression'>('schedule')
@@ -201,16 +202,4 @@ function ExerciseForm({ editor, save, close, phase }: { editor: Editor; phase: n
       <button className="button" type="submit"><Check size={17}/>Save exercise</button>
     </form>
   </Dialog>
-}
-
-export function Library({ phase, open }: { phase: number; open(item: Exercise): void }) {
-  const [query,setQuery] = useState('')
-  const [category,setCategory] = useState<Category | ''>('')
-  const items = library.filter(item => (item.minPhase ?? 0) <= phase && item.name.toLowerCase().includes(query.trim().toLowerCase()) &&
-    (!category || (category === categories[9] ? item.flag : item.category === category)))
-  return <section className="panel">
-    <div className="panel-header"><div><h2>Exercise library</h2><p>{items.length} exercises</p></div><Dumbbell size={21}/></div>
-    <div className="editor-controls"><label className="field">Find an exercise<input type="search" value={query} placeholder="Search movements" onChange={e => setQuery(e.target.value)}/></label><label className="field">Category<select value={category} onChange={e => setCategory(e.target.value as Category | '')}><option value="">All categories</option>{categories.map(item => <option key={item}>{item}</option>)}</select></label></div>
-    {items.length ? items.map(item => <ExerciseRow key={item.id} item={item} open={() => open(item)}/>) : <Empty>No exercises match this search.</Empty>}
-  </section>
 }
