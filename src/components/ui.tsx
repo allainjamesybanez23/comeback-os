@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Activity, AlertTriangle, ArrowUpRight, BicepsFlexed, BookOpen, ChevronRight, Circle, CircleDot, Dumbbell, Footprints, Hand, HeartPulse, History, Move, Shield, ShieldCheck, Sparkles, Trophy, Waves, X, Zap, type LucideIcon } from 'lucide-react'
+import { Activity, AlertTriangle, ArrowUpRight, BicepsFlexed, BookOpen, ChevronRight, Circle, CircleDot, Dumbbell, Footprints, Hand, HeartPulse, History, Move, PersonStanding, Shield, ShieldCheck, Sparkles, Trophy, Waves, X, Zap, type LucideIcon } from 'lucide-react'
 import type { Exercise } from '../data/comebackProgram'
 import { categories, redFlags } from '../data/comebackProgram'
+import { benefitFor, benefitLabel, type BenefitTag } from '../data/benefits'
 import { ExerciseAnimation } from './ExerciseAnimation'
 import { bestSet, blockedReason, dateLabel, historyFor, type DayLog, type Module, type State } from '../model'
 
@@ -19,6 +20,30 @@ export function CategoryPill({ item }: { item: Exercise }) {
   const label = item.category === 'Silent Foam Ball Handles' ? 'Ball handling' : item.category
   return <span className="pills"><span className="pill"><Icon size={12} aria-hidden="true"/>{label}</span>{item.flag && <span className="pill flag"><AlertTriangle size={12} aria-hidden="true"/>FLAG <span className="sr-only">Forearm Load Warning</span></span>}</span>
 }
+/* A small basketball glyph: lucide has no basketball icon. */
+function BallIcon({ size = 14 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5v19M5.3 5.3c3.4 3.6 3.4 9.8 0 13.4M18.7 5.3c-3.4 3.6-3.4 9.8 0 13.4"/></svg>
+}
+const tagIcon: Record<BenefitTag, (props: { size?: number }) => ReactNode> = {
+  court: BallIcon,
+  body: ({ size }) => <PersonStanding size={size} aria-hidden="true"/>,
+  forearm: ({ size }) => <Hand size={size} aria-hidden="true"/>,
+}
+export function BenefitTags({ item, labels = true }: { item: Exercise; labels?: boolean }) {
+  const benefit = benefitFor(item.name)
+  if (!benefit) return null
+  return <span className="benefit-tags" aria-label={'Helps: ' + benefit.tags.map(tag => benefitLabel[tag]).join(', ')}>
+    {benefit.tags.map(tag => { const Icon = tagIcon[tag]; return <span key={tag} className={'benefit-tag tag-' + tag} title={benefitLabel[tag]}><Icon size={12}/>{labels && benefitLabel[tag]}</span> })}
+  </span>
+}
+export function WhyItHelps({ item, compact = false }: { item: Exercise; compact?: boolean }) {
+  const benefit = benefitFor(item.name)
+  if (!benefit) return null
+  return <section className={'why-box' + (compact ? ' compact' : '')} aria-label="Why it helps you">
+    <div className="why-head"><strong>Why it helps you</strong><BenefitTags item={item}/></div>
+    <p>{benefit.why}</p>
+  </section>
+}
 export const prescription = (item: Exercise) => item.sets > 1 ? item.sets + ' × ' + item.reps : item.reps
 
 /* A row with a live thumbnail that animates on hover or focus. */
@@ -29,7 +54,7 @@ export function ExerciseRow({ item, open, done, protectedArm = true, code = true
     <span className="row-thumb"><ExerciseAnimation exercise={item} protectedArm={protectedArm} compact playing={hover}/></span>
     <span className="exercise-copy">
       <strong>{code && item.block && /^[A-Z]\d?$/.test(item.block) && <span className="block-code">{item.block}</span>}{item.name}</strong>
-      <span className="row-meta">{item.load !== 'Bodyweight' && <span>{item.load}</span>}{item.tempo && <span className="mono">Tempo {item.tempo}</span>}{item.flag && <span className="flag-text"><AlertTriangle size={12}/>Forearm flag</span>}</span>
+      <span className="row-meta">{item.load !== 'Bodyweight' && <span>{item.load}</span>}{item.tempo && <span className="mono">Tempo {item.tempo}</span>}{item.flag && <span className="flag-text"><AlertTriangle size={12}/>Forearm flag</span>}<BenefitTags item={item} labels={false}/></span>
     </span>
     <span className="row-dose mono">{prescription(item)}{done !== undefined && <small>{complete ? 'Done' : done + '/' + item.sets + ' sets'}</small>}</span>
     <ChevronRight size={18} className="row-arrow" aria-hidden="true"/>
@@ -103,6 +128,7 @@ export function ExerciseDetail({ exercise, phase, log, state, close, today }: { 
       <div><dt>Rest</dt><dd className="mono">{exercise.rest ? exercise.rest + ' s' : 'None · keep moving'}</dd></div>
     </dl>
     {exercise.adjustment && <p className="notice">{exercise.adjustment}</p>}
+    <WhyItHelps item={exercise}/>
     <h3>How to</h3><ol className="cue-list">{cues.map((cue, i) => <li key={i}>{cue}</li>)}</ol>
     <h3>Avoid</h3><p className="avoid">{exercise.mistake || 'Keep the movement controlled and within your prescribed range.'}</p>
     <h3><History size={15}/> Your history</h3>

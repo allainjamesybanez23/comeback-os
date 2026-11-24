@@ -7,7 +7,7 @@ import { armAudio, chime, tempoTicks } from '../audio'
 import { hush, speak, spokenDose } from '../voice'
 import { badges, unlocked } from '../achievements'
 import { ExerciseAnimation } from './ExerciseAnimation'
-import { CategoryPill, Dialog, Readiness, Rings, formatClock, moduleIcon, ringTones } from './ui'
+import { CategoryPill, Dialog, Readiness, Rings, WhyItHelps, formatClock, moduleIcon, ringTones } from './ui'
 
 type Phase = 'idle' | 'ready' | 'work' | 'rest' | 'finish'
 type Clock = { left: number; duration: number; deadline?: number }
@@ -364,6 +364,7 @@ export function WorkoutPlayer(props: Props) {
         {restNext && <span className="demo-flag">Up next</span>}
         <ExerciseAnimation key={item.id} exercise={item} protectedArm={props.phase === 0} className="player-anim"/>
         <div className="demo-cues">
+          <WhyItHelps item={item} compact/>
           <ol className="cue-list">{cues.map((cue, i) => <li key={i}>{cue}</li>)}</ol>
           {item.mistake && <p className="avoid"><AlertTriangle size={15}/>{item.mistake}</p>}
           <button className="quiet" onClick={() => props.showDetail(item)}>Full guide &amp; history <ChevronRight size={15}/></button>

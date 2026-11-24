@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { circuit, circuitRows, cooldown, dailyMobility, days, expansion, foamRows, phases, rehabRows, sundayFlow, sundayMobility, warmUp } from '../src/data/comebackProgram'
 import { motionFor } from '../src/anim/motions'
+import { benefits } from '../src/data/benefits'
 import { activePhase, blockedReason, clearanceEarliest, eligiblePhase, formatDuration, fresh, loadKg, sessionTimes, plusDays, prescribed, programSections, queueFor, recoveryReasons, scheduleConflicts, sessionDone, statsFor, targetReps, weightTrend, weekFor, workSeconds, type State } from '../src/model'
 import { tempoTicks } from '../src/audio'
 
@@ -128,4 +129,14 @@ test('session times are listed per day and formatted in minutes and hours', () =
   assert.equal(formatDuration(3125), '52 min')
   assert.equal(formatDuration(4500), '1 h 15 min')
   assert.equal(formatDuration(20), '<1 min')
+})
+
+test('every exercise explains why it helps for basketball, body or forearm', () => {
+  const missing = [...new Set(everything.map(item => item.name))].filter(name => !benefits[name])
+  assert.deepEqual(missing, [])
+  const names = new Set(everything.map(item => item.name))
+  assert.deepEqual(Object.keys(benefits).filter(name => !names.has(name)), [], 'benefits for exercises that no longer exist')
+  for (const [name, benefit] of Object.entries(benefits)) {
+    assert.ok(benefit.tags.length > 0 && benefit.why.length > 30, name)
+  }
 })

@@ -42,6 +42,8 @@ The animated movement guide sits beside the timer for every set, and shows the n
 
 Session time is tracked automatically while a session is open and saved when you finish or leave, so resuming later adds to the same total. Durations show on Today, in Sessions, on the finish screen and in **Progress → Session time** (per day, per session, with start times). You can correct minutes in the calendar day view.
 
+Every exercise explains **why it helps you**, tagged **Basketball**, **Body** and/or **Forearm**. It shows beside the cues in the player, in the guide drawer, and as tags in the library (search “forearm” to find them all). The text lives in `src/data/benefits.ts`.
+
 Rep sets log actual reps and kg; the guide drawer shows your history and best set. Timed plyo sets with an unknown jump count ask for foot contacts before logging. The finish screen shows time, sets, reps, volume, streak, weekly rings and any badge unlocked.
 
 Logs, schedule swaps, benchmark measurements, settings and edits are stored in IndexedDB in the Windows Electron user profile. There's no account or server.
