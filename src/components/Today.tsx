@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, BookOpen, CalendarClock, Check, ChevronRight, Clock3, Flame, Layers, Play, RotateCcw, Target, Trophy } from 'lucide-react'
+import { ArrowRight, BookOpen, CalendarClock, Check, ChevronRight, Clock3, Flame, Layers, Play, RotateCcw, Sparkle, Target, Trophy } from 'lucide-react'
 import { days, mindset, phases, progression, quotes, type Exercise } from '../data/comebackProgram'
-import { clearanceEarliest, dateLabel, dayFor, distance, formatDuration, moduleLabel, programSections, queueFor, sessionDone, sessionMinutes, sessionStats, startDate, statsFor, weekFor, weekRings, type Module, type State } from '../model'
+import { clearanceEarliest, dateLabel, dayFor, dayIndex, distance, formatDuration, monday, moduleLabel, plusDays, programSections, queueFor, sessionDone, sessionMinutes, sessionStats, startDate, statsFor, weekFor, weekRings, type Module, type State } from '../model'
 import { badges, foundationDay, nextBadge, unlocked } from '../achievements'
 import { ExerciseAnimation } from './ExerciseAnimation'
 import { Court, FaithIcon, Readiness, Rings, moduleBlurb, moduleIcon, ringTones } from './ui'
@@ -14,10 +14,11 @@ type Props = {
   setPain(value: number): void
   openFlags(): void
   openProgress(): void
+  openReview(start: string): void
 }
 const greeting = () => { const h = new Date().getHours(); return h < 5 ? 'Late night grind' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening' }
 
-export function Today({ state, today, phase, start, preview, showDetail, setPain, openFlags, openProgress }: Props) {
+export function Today({ state, today, phase, start, preview, showDetail, setPain, openFlags, openProgress, openReview }: Props) {
   const [verseOffset, setVerse] = useState(0)
   const [spot, setSpot] = useState(0)
   const log = state.logs[today] ?? {}
@@ -132,6 +133,11 @@ export function Today({ state, today, phase, start, preview, showDetail, setPain
       </div>
 
       <aside className="today-rail">
+        {(dayIndex(today) === 6 || dayIndex(today) === 0) && <button className="panel review-card" onClick={() => openReview(dayIndex(today) === 6 ? monday(today) : plusDays(monday(today), -7))}>
+          <span className="badge-icon"><Sparkle size={22}/></span>
+          <span className="badge-copy"><span className="eyebrow">{dayIndex(today) === 6 ? 'Sunday recap' : 'Last week'}</span><strong>Your week in review is ready</strong><small>Sessions, time, personal bests and a focus for next week.</small></span>
+          <ChevronRight size={18}/>
+        </button>}
         <section className="panel rings-card">
           <div className="card-heading"><Target size={18}/><h2>Weekly goals</h2><button className="quiet small" onClick={openProgress}>Progress <ChevronRight size={14}/></button></div>
           <div className="rings-body">

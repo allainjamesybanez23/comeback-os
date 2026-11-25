@@ -4,6 +4,7 @@ import type { Exercise } from '../data/comebackProgram'
 import { categories, redFlags } from '../data/comebackProgram'
 import { benefitFor, benefitLabel, type BenefitTag } from '../data/benefits'
 import { ExerciseAnimation } from './ExerciseAnimation'
+import { ExerciseProgress } from './Strength'
 import { bestSet, blockedReason, dateLabel, historyFor, type DayLog, type Module, type State } from '../model'
 
 const icons = [Dumbbell, BicepsFlexed, Zap, HeartPulse, Activity, Move, Shield, Footprints, Circle, AlertTriangle]
@@ -110,7 +111,8 @@ export function Rings({ values, size = 132, stroke = 11 }: { values: { value: nu
     })}
   </svg>
 }
-export const ringTones = { workout: '#FF5A3C', rehab: '#8CA9F5', mobility: '#7FD1C7', foam: '#F2B35B' }
+/* Session colors, validated as a categorical set on the dark surface (lightness band, chroma, colorblind separation, contrast). */
+export const ringTones = { workout: '#D95926', mobility: '#199E70', rehab: '#3987E5', foam: '#C98500' }
 
 export function ExerciseDetail({ exercise, phase, log, state, close, today }: { exercise: Exercise; phase: number; log: DayLog; state: State; close(): void; today: string }) {
   const reason = blockedReason(exercise, log, phase)
@@ -133,6 +135,7 @@ export function ExerciseDetail({ exercise, phase, log, state, close, today }: { 
     <h3>Avoid</h3><p className="avoid">{exercise.mistake || 'Keep the movement controlled and within your prescribed range.'}</p>
     <h3><History size={15}/> Your history</h3>
     {best && <p className="pr-line"><Trophy size={15}/> Best set <strong className="mono">{best.reps}{best.kg ? ' × ' + best.kg + ' kg' : ' reps'}</strong></p>}
+    <ExerciseProgress state={state} id={exercise.id}/>
     {history.length ? <ul className="history-list">{history.map(day => <li key={day.date}><span>{day.date === today ? 'Today' : dateLabel(day.date, { month: 'short', day: 'numeric' })}</span><span className="mono">{day.sets.map(set => set.reps !== undefined ? set.reps + (set.kg ? '×' + set.kg : '') : set.contacts ? set.contacts + 'c' : '✓').join(' · ')}</span></li>)}</ul> : <Empty>No sets logged yet. Your reps and weights show up here.</Empty>}
   </Dialog>
 }

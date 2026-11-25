@@ -44,6 +44,10 @@ Session time is tracked automatically while a session is open and saved when you
 
 Every exercise explains **why it helps you**, tagged **Basketball**, **Body** and/or **Forearm**. It shows beside the cues in the player, in the guide drawer, and as tags in the library (search “forearm” to find them all). The text lives in `src/data/benefits.ts`.
 
+**Progress** also has strength charts (total reps, best set or volume per session for any exercise you log, plus weekly sets, minutes or volume, each with a table view) and a **Week in review** recap: sessions per type, time, sets, reps, personal bests, pain and sleep, and a focus for next week. On Sundays and Mondays the recap appears on Today.
+
+**Reminders** (bell icon, top right) send Windows notifications at the times and days you choose: check-in, workout, ball handling, forearm rehab, stretching and bedtime. A session reminder is skipped if that session is already done. To get reminders with the window closed, turn on "Keep running in the system tray"; you can also start the app hidden in the tray when Windows starts.
+
 Rep sets log actual reps and kg; the guide drawer shows your history and best set. Timed plyo sets with an unknown jump count ask for foot contacts before logging. The finish screen shows time, sets, reps, volume, streak, weekly rings and any badge unlocked.
 
 Logs, schedule swaps, benchmark measurements, settings and edits are stored in IndexedDB in the Windows Electron user profile. There's no account or server.

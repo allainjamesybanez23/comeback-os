@@ -26,9 +26,35 @@ export type State = {
   tempo: boolean
   voice?: boolean
   autoflow?: boolean
+  reminders?: Reminder[]
+  reminderPrefs?: { background: boolean; login: boolean }
+  reminderLog?: Record<string, string>
   hrBaseline?: number
   weekOverride?: number
   deload?: string
+}
+export type ReminderTarget = Module | 'checkin' | 'bed'
+export type Reminder = { id: string; label: string; time: string; days: number[]; target: ReminderTarget; on: boolean }
+const everyDay = [0, 1, 2, 3, 4, 5, 6]
+export const defaultReminders: Reminder[] = [
+  { id: 'checkin', label: 'Morning check-in + weigh-in', time: '07:30', days: [0, 2, 4], target: 'checkin', on: false },
+  { id: 'workout', label: 'Workout time', time: '17:00', days: everyDay, target: 'workout', on: false },
+  { id: 'foam', label: 'Ball handling', time: '18:30', days: everyDay, target: 'foam', on: false },
+  { id: 'rehab', label: 'Forearm rehab', time: '19:30', days: everyDay, target: 'rehab', on: false },
+  { id: 'mobility', label: 'Stretch flow', time: '21:00', days: everyDay, target: 'mobility', on: false },
+  { id: 'bed', label: 'Wind down for 8–9 h of sleep', time: '22:30', days: everyDay, target: 'bed', on: false },
+]
+/* Reminders due right now: enabled, scheduled today, within an hour after their time, not yet sent today. */
+export function dueReminders(state: State, now: Date) {
+  const key = dateKey(now)
+  const minutes = now.getHours() * 60 + now.getMinutes()
+  const day = (now.getDay() + 6) % 7
+  return (state.reminders ?? defaultReminders).filter(reminder => {
+    if (!reminder.on || !reminder.days.includes(day) || state.reminderLog?.[reminder.id] === key) return false
+    const [h, m] = reminder.time.split(':').map(Number)
+    const at = h * 60 + m
+    return minutes >= at && minutes - at < 60
+  })
 }
 export const fresh: State = { version: 1, logs: {}, edits: {}, schedule: {}, benchmarks: {}, clarity: '', phase: 0, audio: true, tempo: false, voice: true, autoflow: true }
 export const dateKey = (date: Date) => {
@@ -306,3 +332,48 @@ export function formatDuration(seconds: number) {
   if (minutes < 60) return minutes + ' min'
   return Math.floor(minutes / 60) + ' h ' + String(minutes % 60).padStart(2, '0') + ' min'
 }
+
+/* ---------- Strength progress ---------- */
+export type ProgressPoint = { date: string; sets: number; totalReps: number; best: number; bestKg: number; volume: number }
+export function exerciseSeries(state: State, id: string): ProgressPoint[] {
+  return historyFor(state, id).filter(day => day.sets.some(set => set.reps !== undefined)).reverse().map(day => {
+    const sets = day.sets.filter(set => set.reps !== undefined)
+    const top = sets.reduce((a, b) => ((b.kg ?? 0) > (a.kg ?? 0) || ((b.kg ?? 0) === (a.kg ?? 0) && (b.reps ?? 0) > (a.reps ?? 0)) ? b : a), sets[0])
+    return {
+      date: day.date, sets: sets.length,
+      totalReps: sets.reduce((sum, set) => sum + (set.reps ?? 0), 0),
+      best: top.reps ?? 0, bestKg: top.kg ?? 0,
+      volume: Math.round(sets.reduce((sum, set) => sum + (set.reps ?? 0) * (set.kg ?? 0), 0)),
+    }
+  })
+}
+/* Exercises that have logged reps, most-trained first. */
+export function trainedExercises(state: State) {
+  const counts = new Map<string, number>()
+  for (const log of Object.values(state.logs)) {
+    const seen = new Set<string>()
+    for (const [key, set] of Object.entries(log.sets ?? {})) if (set.reps !== undefined) seen.add(key.split(':')[0])
+    for (const id of seen) counts.set(id, (counts.get(id) ?? 0) + 1)
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([id, sessions]) => ({ id, sessions }))
+}
+export type WeekTotals = { start: string; sets: number; reps: number; volume: number; seconds: number; contacts: number }
+export function weekTotals(state: State, start: string, length = 7): WeekTotals {
+  const end = plusDays(start, length)
+  const out: WeekTotals = { start, sets: 0, reps: 0, volume: 0, seconds: 0, contacts: 0 }
+  for (const [key, log] of Object.entries(state.logs)) {
+    if (key < start || key >= end) continue
+    out.seconds += Object.values(log.time ?? {}).reduce((sum, value) => sum + (value ?? 0), 0)
+    out.contacts += log.contacts ?? 0
+    for (const set of Object.values(log.sets ?? {})) {
+      out.sets++
+      out.reps += set.reps ?? 0
+      out.volume += (set.reps ?? 0) * (set.kg ?? 0)
+      out.contacts += set.contacts
+    }
+  }
+  out.volume = Math.round(out.volume)
+  return out
+}
+export const recentWeeks = (state: State, today: string, count = 8) =>
+  Array.from({ length: count }, (_, i) => weekTotals(state, plusDays(monday(today), (i - count + 1) * 7)))

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { circuit, circuitRows, cooldown, dailyMobility, days, expansion, foamRows, phases, rehabRows, sundayFlow, sundayMobility, warmUp } from '../src/data/comebackProgram'
 import { motionFor } from '../src/anim/motions'
 import { benefits } from '../src/data/benefits'
-import { activePhase, blockedReason, clearanceEarliest, eligiblePhase, formatDuration, fresh, loadKg, sessionTimes, plusDays, prescribed, programSections, queueFor, recoveryReasons, scheduleConflicts, sessionDone, statsFor, targetReps, weightTrend, weekFor, workSeconds, type State } from '../src/model'
+import { activePhase, blockedReason, clearanceEarliest, defaultReminders, dueReminders, eligiblePhase, exerciseSeries, formatDuration, weekTotals, fresh, loadKg, sessionTimes, plusDays, prescribed, programSections, queueFor, recoveryReasons, scheduleConflicts, sessionDone, statsFor, targetReps, weightTrend, weekFor, workSeconds, type State } from '../src/model'
 import { tempoTicks } from '../src/audio'
 
 test('launch falls in Week 3 and progression changes squat, plyos and Saturday intervals', () => {
@@ -139,4 +139,28 @@ test('every exercise explains why it helps for basketball, body or forearm', () 
   for (const [name, benefit] of Object.entries(benefits)) {
     assert.ok(benefit.tags.length > 0 && benefit.why.length > 30, name)
   }
+})
+
+test('reminders fire once, inside an hour after their time, on chosen days', () => {
+  const on = defaultReminders.map(r => r.id === 'rehab' ? { ...r, on: true } : r)
+  const state: State = { ...fresh, reminders: on }
+  const at = (h: number, m: number) => new Date(2026, 10, 25, h, m)
+  assert.deepEqual(dueReminders(state, at(19, 29)).map(r => r.id), [])
+  assert.deepEqual(dueReminders(state, at(19, 30)).map(r => r.id), ['rehab'])
+  assert.deepEqual(dueReminders(state, at(20, 31)).map(r => r.id), [])
+  assert.deepEqual(dueReminders({ ...state, reminderLog: { rehab: '2026-11-25' } }, at(19, 45)).map(r => r.id), [])
+  const checkin = defaultReminders.map(r => r.id === 'checkin' ? { ...r, on: true } : r)
+  assert.deepEqual(dueReminders({ ...fresh, reminders: checkin }, at(7, 40)).map(r => r.id), ['checkin'])
+  assert.deepEqual(dueReminders({ ...fresh, reminders: checkin }, new Date(2026, 10, 24, 7, 40)).map(r => r.id), [])
+})
+
+test('strength series and weekly totals come from logged sets', () => {
+  const state: State = { ...fresh, logs: {
+    '2026-11-23': { sets: { 'mon-A1:1': { contacts: 0, reps: 10, kg: 17 }, 'mon-A1:2': { contacts: 0, reps: 9, kg: 17 }, 'mon-A2:1': { contacts: 10 } }, time: { workout: 3000 } },
+    '2026-11-30': { sets: { 'mon-A1:1': { contacts: 0, reps: 12, kg: 17 } } },
+  } }
+  const series = exerciseSeries(state, 'mon-A1')
+  assert.deepEqual(series.map(p => [p.date, p.totalReps, p.best, p.volume]), [['2026-11-23', 19, 10, 323], ['2026-11-30', 12, 12, 204]])
+  const week = weekTotals(state, '2026-11-23')
+  assert.deepEqual([week.sets, week.reps, week.volume, week.seconds, week.contacts], [3, 19, 323, 3000, 10])
 })

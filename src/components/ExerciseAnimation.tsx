@@ -254,10 +254,10 @@ export function ExerciseAnimation({ exercise, protectedArm, playing, compact = f
     let w = maxX - minX, h = maxY - minY
     const aspect = 4 / 3
     if (w / h < aspect) { const extra = h * aspect - w; minX -= extra / 2; w = h * aspect } else { const extra = w / aspect - h; minY -= extra * 0.7; h = w / aspect }
-    const pad = Math.max(w, h) * 0.06
+    const pad = Math.max(w, h) * (compact ? 0.02 : 0.06)
     const view: [number, number, number, number] = [minX - pad, minY - pad, w + pad * 2, h + pad * 2]
     return { tl, cam, ctx, view, equip }
-  }, [exercise.id, exercise.move, exercise.tempo, exercise.load, motion, protectedArm])
+  }, [exercise.id, exercise.move, exercise.tempo, exercise.load, motion, protectedArm, compact])
 
   let figure: ReactNode
   let label = ''

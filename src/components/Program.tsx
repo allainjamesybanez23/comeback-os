@@ -1,14 +1,14 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, CalendarDays, Check, ChevronRight, Copy, LockKeyhole, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
-import { categories, circuit, circuitDoses, cooldown, dailyMobility, days, expansion, foamRows, phases, progression, rehabRows, sundayMobility, warmUp, type Category, type Exercise } from '../data/comebackProgram'
-import { activePhase, clearanceEarliest, dateLabel, dayFor, editKey, eligiblePhase, monday, plusDays, prescribed, scheduleConflicts, startDate, weekFor, type State } from '../model'
+import { categories, circuitDoses, days, phases, progression, type Category, type Exercise } from '../data/comebackProgram'
+import { library } from '../data/library'
+import { activePhase, programSections, sessionMinutes, clearanceEarliest, dateLabel, dayFor, editKey, eligiblePhase, monday, plusDays, prescribed, scheduleConflicts, startDate, weekFor, type State } from '../model'
 import type { Update } from '../store'
 import { CategoryPill, Dialog, Empty } from './ui'
 
 type Props = { state: State; update: Update; today: string }
 type Editor = { mode: 'new' | 'edit' | 'swap'; item: Exercise }
-export const library = [...days.flatMap(day => day.main), ...warmUp, ...rehabRows, ...dailyMobility, ...sundayMobility, ...cooldown, ...foamRows, ...circuit, ...expansion, ...phases.flatMap(phase => phase.rows)]
-  .filter((item, i, all) => all.findIndex(other => other.name === item.name) === i)
+export { library }
 
 export function Program({ state, update, today, navigate }: Props & { navigate(date: string): void }) {
   const [tab,setTab] = useState<'schedule' | 'editor' | 'progression'>('schedule')
@@ -85,7 +85,7 @@ export function Program({ state, update, today, navigate }: Props & { navigate(d
         const plan = days[dayFor(state,date)]
         return <div className="schedule-row" key={date}>
           <div className={'schedule-date ' + (date === today ? 'is-today' : '')}><span>{dateLabel(date,{weekday:'short'})}</span><strong className="mono">{date.slice(-2)}</strong></div>
-          <div><strong>{plan.title}</strong><p>{plan.focus}</p></div><span className="pill">{plan.level} · {plan.minutes} min</span>
+          <div><strong>{plan.title}</strong><p>{plan.focus}</p></div><span className="pill">{plan.level} · ~{sessionMinutes(programSections(state,date,'workout',today))} min</span>
           <button className="button subtle" onClick={() => navigate(date)}>View <ChevronRight size={16}/></button>
           <button className="icon-btn" aria-label={'Reschedule ' + rowName(date)} title="Swap scheduled days" disabled={date < today} onClick={() => {setChange(date);setTarget(plusDays(date,1));setShowWarnings(false)}}><ArrowLeftRight size={17}/></button>
         </div>

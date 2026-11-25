@@ -60,6 +60,10 @@ declare global {
       backgroundKeys(enabled: boolean): void
       onWorkoutKey(callback: (key: string) => void): () => void
       onWorkoutKeyError(callback: () => void): () => void
+      notify?(title: string, body: string, target: string): void
+      setBackground?(enabled: boolean): void
+      setLaunchAtLogin?(enabled: boolean): void
+      onReminderOpen?(callback: (target: string) => void): () => void
     }
   }
 }

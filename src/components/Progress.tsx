@@ -4,9 +4,10 @@ import { dateLabel, dayFor, formatDuration, monday, moduleLabel, moduleOrder, se
 import type { Update } from '../store'
 import { badges, progressTotals, unlocked } from '../achievements'
 import { Calendar } from './Tracking'
+import { StrengthPanel } from './Strength'
 import { Empty, Rings, moduleIcon, ringTones } from './ui'
 
-export function Progress({ state, update, today }: { state: State; update: Update; today: string }) {
+export function Progress({ state, update, today, openReview }: { state: State; update: Update; today: string; openReview(start: string): void }) {
   const rings = weekRings(state, today)
   const totals = progressTotals(state, today)
   const metrics = statsFor(state, today)
@@ -23,6 +24,7 @@ export function Progress({ state, update, today }: { state: State; update: Updat
         <div>
           <p className="eyebrow">This week</p>
           <h2>{rings.workout + rings.rehab + rings.mobility} of 21 sessions</h2>
+          <button className="button subtle review-btn" onClick={() => openReview(monday(today))}>Week in review</button>
           <ul className="ring-legend big">
             <li><i style={{ background: ringTones.workout }}/><span>Workouts</span><b className="mono">{rings.workout}/7</b></li>
             <li><i style={{ background: ringTones.rehab }}/><span>Forearm rehab</span><b className="mono">{rings.rehab}/7</b></li>
@@ -44,6 +46,7 @@ export function Progress({ state, update, today }: { state: State; update: Updat
         ] as const).map(([Icon, value, label, unit]) => <div key={label} className="tile"><dt><Icon size={15}/>{label}</dt><dd className="mono">{value}<small> {unit}</small></dd></div>)}
       </dl>
     </div>
+    <StrengthPanel state={state} today={today}/>
     <SessionTimes state={state} today={today}/>
     <section className="panel padded">
       <div className="card-heading"><Medal size={18}/><h2>Achievements</h2><span className="muted mono">{earned.length}/{list.length}</span></div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, BookOpen, CalendarRange, ChevronRight, Dumbbell, Flame, HeartPulse, Home, LockKeyhole, Trophy, Volume2, VolumeX } from 'lucide-react'
+import { AlertTriangle, Bell, BookOpen, CalendarRange, ChevronRight, Dumbbell, Flame, HeartPulse, Home, LockKeyhole, Trophy, Volume2, VolumeX } from 'lucide-react'
 import { days, type Exercise } from './data/comebackProgram'
 import { activePhase, dateKey, dateLabel, dayFor, deloadText, moduleLabel, plusDays, programSections, recoveryReasons, statsFor, type DayLog, type Module, type SetLog, type State, type Step } from './model'
 import { useStore, type Update } from './store'
@@ -11,6 +11,8 @@ import { Progress } from './components/Progress'
 import { Sessions } from './components/Sessions'
 import { Today } from './components/Today'
 import { WorkoutPlayer, type Setting } from './components/WorkoutPlayer'
+import { WeeklyReview } from './components/WeeklyReview'
+import { RemindersDialog, useReminders } from './components/Reminders'
 import { armAudio } from './audio'
 
 type Route = 'today' | 'workouts' | 'library' | 'progress' | 'checkin' | 'program'
@@ -52,6 +54,8 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
   const [session, setSession] = useState<{ module: Module; key: number }>()
   const [detail, setDetail] = useState<Exercise>()
   const [red, setRed] = useState(false)
+  const [review, setReview] = useState<string>()
+  const [remindersOpen, setRemindersOpen] = useState(false)
   const mainRef = useRef<HTMLElement>(null)
   const phase = activePhase(state, today)
   const log = state.logs[today] ?? {}
@@ -121,9 +125,19 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
     if (nextHard) update(before => ({ ...before, schedule: { ...before.schedule, [nextHard]: 6 } }))
   }
 
+  const reminders = useReminders(state, update, target => {
+    if (session) return
+    if (target === 'checkin') { go('checkin'); return }
+    if (target === 'bed') { go('today'); return }
+    if ((state.logs[today]?.pain ?? 0) >= 3) { go('today'); return }
+    start(target)
+  })
   const dialogs = <>
     {detail && <ExerciseDetail exercise={detail} phase={phase} log={log} state={state} today={today} close={() => setDetail(undefined)}/>}
     {red && <RedFlags close={() => setRed(false)}/>}
+    {remindersOpen && <RemindersDialog state={state} update={update} close={() => setRemindersOpen(false)} test={reminders.test}/>}
+    {reminders.toastView}
+    {review && <WeeklyReview state={state} today={today} start={review} setStart={setReview} close={() => setReview(undefined)}/>}
   </>
 
   if (session) {
@@ -156,6 +170,7 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
       <header className="toolbar">
         <div className="toolbar-title"><strong>{active.label}</strong>{subtitles[route] && <span>{subtitles[route]}</span>}</div>
         <div className="toolbar-right">
+          <button className="icon-btn" title="Reminders" aria-label="Reminders" onClick={() => setRemindersOpen(true)}><Bell size={18}/>{(state.reminders ?? []).some(r => r.on) && <i className="bell-dot" aria-hidden="true"/>}</button>
           <span className="toolbar-date">{dateLabel(today, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
           <button className="icon-btn" title={state.audio ? 'Mute beeps' : 'Enable beeps'} aria-label={state.audio ? 'Mute beeps' : 'Enable beeps'} aria-pressed={state.audio} onClick={() => { armAudio(); setting('audio') }}>{state.audio ? <Volume2 size={18}/> : <VolumeX size={18}/>}</button>
         </div>
@@ -168,10 +183,10 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
             <button className="button subtle" onClick={() => update(before => ({ ...before, deload: today }))} disabled={state.deload === today}>{state.deload === today ? 'Deload applied' : 'Apply 7-day deload'}</button>}
           <button className="button subtle" onClick={swapForRecovery}>Swap next hard day</button>
         </div>}
-        {route === 'today' && <Today state={state} today={today} phase={phase} start={start} preview={preview} showDetail={setDetail} setPain={setPain} openFlags={() => setRed(true)} openProgress={() => go('progress')}/>}
+        {route === 'today' && <Today state={state} today={today} phase={phase} start={start} preview={preview} showDetail={setDetail} setPain={setPain} openFlags={() => setRed(true)} openProgress={() => go('progress')} openReview={setReview}/>}
         {route === 'workouts' && <Sessions state={state} today={today} phase={phase} module={module} date={planDate} setModule={setModule} setDate={setPlanDate} start={start} showDetail={setDetail}/>}
         {route === 'library' && <Library phase={phase} open={setDetail}/>}
-        {route === 'progress' && <Progress state={state} update={update} today={today}/>}
+        {route === 'progress' && <Progress state={state} update={update} today={today} openReview={setReview}/>}
         {route === 'checkin' && <CheckInForm state={state} update={update} today={today}/>}
         {route === 'program' && <Program state={state} update={update} today={today} navigate={date => preview('workout', date)}/>}
       </main>
