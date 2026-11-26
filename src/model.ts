@@ -1,4 +1,6 @@
-import { circuitRows, cooldown, dailyMobility, days, expansion, foamRows, phases, rehabRows, sundayFlow, warmUp, type Exercise, type Section } from './data/comebackProgram'
+import { circuitRows, cooldown, dailyMobility, days, expansion, gates, gripRows, leftHandles, optionalEquipment, phases, rehabRows, rightHandles, sundayFlow, warmUp, type Exercise, type Gate, type Section } from './data/comebackProgram'
+import { families, library } from './data/library'
+import { learn, plan, readiness, type Session } from './engine'
 
 export const startDate = '2026-11-09'
 export const clearanceEarliest = '2027-01-01'
@@ -6,16 +8,20 @@ export type Status = 'full' | 'recovery' | 'skipped'
 export type Module = 'workout' | 'mobility' | 'rehab' | 'foam'
 export const moduleOrder: Module[] = ['workout', 'mobility', 'rehab', 'foam']
 export const moduleLabel: Record<Module, string> = { workout: 'Workout', mobility: 'Stretching', rehab: 'Forearm rehab', foam: 'Ball handling' }
-export type Check = { kcal?: number; protein?: number; water?: number; sleep?: number; weight?: number; hr?: number; soreness?: number }
-export type Benchmark = { ankleL?: number; ankleR?: number; squat?: number; hipL?: number; hipR?: number; toes?: boolean }
-export type SetLog = { contacts: number; reps?: number; kg?: number; at?: number }
+export type Check = { kcal?: number; protein?: number; water?: number; sleep?: number; weight?: number; hr?: number; soreness?: number; morning?: number }
+export type Benchmark = { ankleL?: number; ankleR?: number; squat?: number; hipL?: number; hipR?: number; toes?: boolean; palm?: number; pickup?: boolean }
+/* target = planned reps (or total seconds for timed sets), secs = seconds actually worked, pain = forearm pain while logging. */
+export type SetLog = { contacts: number; reps?: number; kg?: number; at?: number; target?: number; secs?: number; rpe?: number; pain?: number }
 export type DayLog = {
   status?: Status; reason?: string; pain?: number; stopped?: string[];
   sets?: Record<string, SetLog>; check?: Check; contacts?: number; rehab?: boolean
   done?: Partial<Record<Module, boolean>>; time?: Partial<Record<Module, number>>; started?: Partial<Record<Module, number>>
 }
+export type Equipment = typeof optionalEquipment[number]
 export type State = {
-  version: 1
+  version: 2
+  light?: { date: string; note?: string }
+  equipment?: Equipment[]
   logs: Record<string, DayLog>
   edits: Record<string, Exercise[]>
   schedule: Record<string, number>
@@ -56,7 +62,14 @@ export function dueReminders(state: State, now: Date) {
     return minutes >= at && minutes - at < 60
   })
 }
-export const fresh: State = { version: 1, logs: {}, edits: {}, schedule: {}, benchmarks: {}, clarity: '', phase: 0, audio: true, tempo: false, voice: true, autoflow: true }
+/* v1 → v2: saved edits swap minPhase for a gate. Every new log field is optional, so old logs read as before. */
+export function migrate(data: any): State {
+  if (data?.version !== 1) return data
+  const edits = Object.fromEntries(Object.entries(data.edits ?? {}).map(([key, rows]) => [key, (rows as (Exercise & { minPhase?: number })[])
+    .map(({ minPhase, ...row }) => minPhase ? { ...row, gate: gates[minPhase + 1] } : row)]))
+  return { ...data, version: 2, edits }
+}
+export const fresh: State = { version: 2, logs: {}, edits: {}, schedule: {}, benchmarks: {}, clarity: '', phase: 0, audio: true, tempo: false, voice: true, autoflow: true }
 export const dateKey = (date: Date) => {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
   return local.toISOString().slice(0, 10)
@@ -71,7 +84,8 @@ export const distance = (a: string, b: string) => Math.round((Date.parse(b) - Da
 export const dayIndex = (key: string) => (parseDate(key).getDay() + 6) % 7
 export const monday = (key: string) => plusDays(key, -dayIndex(key))
 export const dateLabel = (key: string, options: Intl.DateTimeFormatOptions) => parseDate(key).toLocaleDateString('en-US', options)
-export const calendarWeek = (key: string) => Math.min(8, Math.max(1, 1 + Math.floor(distance(startDate, key) / 7)))
+/* The 8-week block repeats, so the plan never sticks on the Week 8 deload. */
+export const calendarWeek = (key: string) => 1 + Math.max(0, Math.floor(distance(startDate, key) / 7)) % 8
 export const weekFor = (state: State, key: string) => state.weekOverride ?? calendarWeek(key)
 export const editKey = (week: number, day: number, phase = 0) => week + '/' + day + '/' + phase
 export const dayFor = (state: State, key: string) => state.schedule[key] ?? dayIndex(key)
@@ -82,6 +96,15 @@ export function eligiblePhase(clearance: string, key: string) {
 export function activePhase(state: State, key: string) {
   return Math.max(0, Math.min(state.phase, eligiblePhase(state.clarity, key)))
 }
+/* Gate level: 0 = Phase 0, 1 = light right-hand use OK'd, 2–5 = surgeon phases 1–4. Only you unlock these. */
+export function gateLevel(state: State, key: string) {
+  const phase = activePhase(state, key)
+  return phase ? phase + 1 : state.light?.date && state.light.date <= key ? 1 : 0
+}
+export const gateRank = (item: Exercise) => gates.indexOf(item.gate ?? 'now')
+export const gateLabel = (gate: Gate = 'now') => gate === 'light' ? 'the light right-hand OK' : gate === 'now' ? 'now' : 'surgeon clearance phase ' + gate.slice(5)
+const optional: readonly string[] = optionalEquipment
+export const owns = (state: State, needs: string[] = []) => needs.every(e => !optional.includes(e) || (state.equipment ?? []).includes(e as Equipment))
 export const deloadText = 'Swap the next hard session for recovery, or cut sets by one-third for a week. Prioritize sleep. If joint or tendon soreness keeps returning, reduce plyometrics and keep the isometrics.'
 
 export function prescribed(day: number, week: number, phase = 0) {
@@ -142,23 +165,36 @@ export function prescribed(day: number, week: number, phase = 0) {
 
 export function programSections(state: State, key: string, module: Module, today: string): Section[] {
   const phase = Math.min(activePhase(state, today), activePhase(state, key))
+  const level = Math.min(gateLevel(state, today), gateLevel(state, key))
   const week = weekFor(state, key)
   const index = dayFor(state, key)
-  if (module === 'rehab') return [{ id: 'rehab', name: 'Forearm rehab', rows: rehabRows }]
+  const edited = module === 'workout' ? state.edits[editKey(week,index,phase)] : undefined
+  const manual = new Set(edited?.map(item => item.id))
+  // Gate and equipment filter every row; the coach engine doses the rest. Your manual edits skip the engine.
+  const fit = (sections: Section[]) => sections
+    .map(section => ({ ...section, rows: section.rows.flatMap(row => {
+      const item = manual.has(row.id) ? (gateRank(row) <= level && owns(state, row.equipment) ? row : undefined) : coach(state, key, row, level)
+      return item ? [item] : []
+    }) }))
+    .filter(section => section.rows.length)
+  if (module === 'rehab') return fit([{ id: 'rehab', name: 'Forearm rehab', rows: rehabRows }])
   if (module === 'mobility') return [{ id: 'mobility', name: index === 6 ? 'Long stretch flow' : 'Stretch flow', rows: index === 6 ? sundayFlow : dailyMobility }]
-  if (module === 'foam') return [
-    { id: 'foam', name: 'Left-hand handles', rows: foamRows },
-    ...(phase ? [{ id: 'foam-expansion', name: 'Cleared two-hand expansion', rows: expansion }] : []),
-  ]
-  const edited = state.edits[editKey(week,index,phase)]
-  let main = (edited ?? prescribed(index,week,phase)).filter(item => (item.minPhase ?? 0) <= phase)
+  if (module === 'foam') {
+    const ball = level >= 2 && owns(state, ['basketball']) // a real basketball only from Phase 1
+    return fit([
+      { id: 'foam', name: 'Left-hand handles', rows: leftHandles },
+      { id: 'foam-right', name: 'Right-hand ladder', rows: rightHandles },
+      { id: 'foam-expansion', name: 'Cleared two-hand expansion', rows: expansion },
+    ]).map(section => ({ ...section, rows: section.rows.map(row => ball && row.side !== 'left' ? { ...row, load: row.load.replace('Foam ball', 'Basketball') } : row) }))
+  }
+  let main = edited ?? prescribed(index,week,phase)
   const reduced = Boolean(state.deload && key >= state.deload && distance(state.deload,key) < 7)
   if (reduced && days[index].level === 'Hard') main = main.map(item => ({ ...item, sets: Math.max(1, Math.round(item.sets * 2 / 3)) }))
   const setMain: Section = { id: 'main', name: 'Main work', rows: main }
-  if (index === 6) return [
+  if (index === 6) return fit([
     { ...setMain, name: 'Recovery work', rows: main.filter(item => item.id !== 'sun-E') },
     ...(main.some(item => item.id === 'sun-E') ? [{ id: 'prep', name: 'Weekly prep', rows: main.filter(item => item.id === 'sun-E') }] : []),
-  ]
+  ])
   const sections: Section[] = [{ id: 'warm', name: 'Warm-up', rows: warmUp }, setMain]
   if (index === 5) {
     let rounds = circuitRows(week)
@@ -168,7 +204,74 @@ export function programSections(state: State, key: string, module: Module, today
     sections.push({ id: 'circuit', name: 'Dorm conditioning circuit', rows: rounds })
     if (finisher) sections.push({ id: 'finisher', name: 'Core finisher', rows: [finisher] })
   }
-  return [...sections, { id: 'cooldown', name: 'Cooldown', rows: cooldown }]
+  if (index === 0 || index === 2 || index === 4) sections.push({ id: 'grip', name: 'Grip & forearm', rows: index === 2 ? gripRows.B : gripRows.A })
+  return fit([...sections, { id: 'cooldown', name: 'Cooldown', rows: cooldown }])
+}
+
+/* ---------- Coach engine wiring ---------- */
+const tunable = new Set<string>(['Lower Strength', 'Upper Band Strength', 'Core & Isometrics', 'Forearm Rehab', 'Silent Foam Ball Handles', 'Grip & Forearm'])
+/* Base dose the engine scales: total seconds for timed sets, reps per side otherwise. 0 = not tunable. */
+function baseDose(item: Exercise) {
+  if (!tunable.has(item.category) || /–/.test(item.reps)) return 0
+  const secs = workSeconds(item)
+  if (secs) return /^\d+\s*s\b/.test(item.reps) ? secs : 0
+  return targetReps(item.reps) ?? 0
+}
+const average = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length
+function sessionsFor(state: State, item: Exercise, before: string): Session[] {
+  const base = baseDose(item), timed = workSeconds(item) > 0
+  if (!base) return []
+  return Object.entries(state.logs).flatMap(([date, log]) => {
+    const sets = date < before ? Object.entries(log.sets ?? {}).filter(([key]) => key.startsWith(item.id + ':')).map(([, set]) => set) : []
+    if (!sets.length) return []
+    const actual = (set: SetLog) => (timed ? set.secs : set.reps) ?? set.target ?? base
+    const rpes = sets.flatMap(set => set.rpe === undefined ? [] : [set.rpe])
+    const next = state.logs[plusDays(date, 1)]?.check?.morning
+    return [{
+      date, id: item.id,
+      ratio: average(sets.map(set => actual(set) / base)),
+      dose: average(sets.map(set => (set.target ?? actual(set)) / base)),
+      rpe: rpes.length ? Math.max(...rpes) : undefined,
+      pain: Math.max(...sets.map(set => set.pain ?? log.pain ?? 0)),
+      morning: next === undefined ? undefined : next - (log.check?.morning ?? 0),
+    }]
+  }).sort((a, b) => a.date.localeCompare(b.date))
+}
+/* Per-side number shown to you: reps, or seconds for each side. */
+const perSide = (item: Exercise, total: number) => workSeconds(item) && sided(item) ? total / 2 : total
+function coach(state: State, key: string, row: Exercise, level: number): Exercise | undefined {
+  const members = row.family ? families[row.family] ?? [row] : [row]
+  const allowed = (item: Exercise) => gateRank(item) <= level && owns(state, item.equipment)
+  if (!row.family && !allowed(row)) return undefined
+  if (!row.family && !baseDose(row)) return row
+  const sessions = members.flatMap(item => sessionsFor(state, item, key)).sort((a, b) => a.date.localeCompare(b.date))
+  const log = state.logs[key] ?? {}
+  const ready = readiness({ ...log.check, baseline: state.hrBaseline, pain: log.pain })
+  const next = plan({
+    date: key, slot: row.family ?? row.id, sessions, ready: ready.value, readyWhy: ready.why,
+    members: members.map(item => ({ id: item.id, name: item.name, rung: item.rung ?? 1, allowed: allowed(item), top: item.range && baseDose(item) ? item.range[1] / perSide(item, baseDose(item)) : 1.3, right: item.side === 'right', lock: gateLabel(item.gate) })),
+  })
+  if (!next) return undefined
+  const pick = members.find(item => item.id === next.id) ?? row
+  const item = { ...pick, block: row.block, sets: row.block || pick === row ? row.sets : pick.sets }
+  const base = baseDose(pick)
+  if (!base) return next.moved ? { ...item, reason: next.why } : item
+  const timed = workSeconds(pick) > 0, per = timed && sided(pick) ? 2 : 1
+  const amount = timed ? Math.max(5, Math.round(base * next.dose / per / 5) * 5) : Math.max(1, Math.round(base * next.dose))
+  const out = { ...item, reps: item.reps.replace(/^\d+/, String(amount)), seconds: timed ? amount * per : item.seconds, sets: item.sets + (next.extraSet && !row.block ? 1 : 0) }
+  const last = sessions.filter(s => s.id === pick.id).at(-1)
+  const before = Math.round(perSide(pick, base * (last?.dose ?? 1)))
+  const unit = (n: number) => timed ? n + ' s' : String(n)
+  const reason = next.moved || next.extraSet ? next.why : next.why && (before !== amount || next.why.startsWith('holding')) ? `${unit(before)} → ${unit(amount)}: ${next.why}` : undefined
+  if (reason) return { ...out, reason }
+  return pick === row && out.reps === row.reps && out.sets === row.sets && out.seconds === row.seconds ? row : out
+}
+/* Capacity trend for Progress: the engine's estimate after each session, as % of the base dose. */
+export function capacitySeries(state: State, id: string) {
+  const item = library.find(entry => entry.id === id) ?? Object.values(state.edits).flat().find(entry => entry.id === id)
+  const sessions = item ? sessionsFor(state, item, '9999-12-31') : []
+  const series = learn(sessions).series
+  return new Map(sessions.map((s, i) => [s.date, Math.round(series[i] * 100)]))
 }
 
 export type Step = { id: string; section: string; item: Exercise; round: number; rest: number; nextInGroup: boolean }
@@ -195,20 +298,41 @@ export function queueFor(sections: Section[]): Step[] {
   }
   return queue
 }
-export function blockedReason(item: Exercise, log: DayLog, phase: number) {
-  if ((log.pain ?? 0) >= 3) return 'Stop this exercise for today. Forearm pain reached 3/10.'
+/* Pain rules come first and override everything; then the gate; then the Phase 0 load locks. */
+export function blockedReason(item: Exercise, log: DayLog, level: number) {
+  const pain = log.pain ?? 0
+  if (pain >= 3) return 'Stop this exercise for today. Forearm pain reached 3/10.'
   if (log.stopped?.includes(item.id)) return 'This exercise was stopped for today.'
-  if ((item.minPhase ?? 0) > phase) return 'Surgeon clearance phase is required.'
-  if (item.flag && (log.pain ?? 0) > 0) return 'This flagged move requires zero forearm pain.'
-  if (phase === 0 && /(?:pull[ -]?ups?|dead[ -]?hangs?|floor push[ -]?ups?|hand planks?|planks? on (?:the )?hands?|push[ -]?ups? on (?:the )?floor)/i.test(item.name)) return 'Locked during Phase 0.'
-  if (phase === 0 && /(?:\bdumbbells?\b|\bDB\b|\bkg\b)/i.test(item.load + ' ' + item.name) &&
+  if (item.flag && pain > 0) return 'This flagged move requires zero forearm pain.'
+  if (item.side === 'right' && gateRank(item) > 0 && pain >= 2) return 'Right-hand work stops at 2/10 forearm pain.'
+  if (gateRank(item) > level) return 'Locked until ' + gateLabel(item.gate) + '.'
+  if (level < 2 && /(?:pull[ -]?ups?|dead[ -]?hangs?|floor push[ -]?ups?|hand planks?|planks? on (?:the )?hands?|push[ -]?ups? on (?:the )?floor)/i.test(item.name)) return 'Locked during Phase 0.'
+  if (level < 2 && /(?:\bdumbbells?\b|\bDB\b|\bkg\b)/i.test(item.load + ' ' + item.name) &&
       (!/^17 kg · left hand only$/.test(item.load) || /\bright\b/.test(item.name.toLowerCase()))) return 'Phase 0 dumbbell work must use 17 kg in the left hand only.'
   return ''
 }
+const PER_SIDE = /\/\s*(side|leg|arm|foot|hand)\b|\beach\b/
+export const sided = (item: Exercise) => PER_SIDE.test(item.reps)
+/* Total work seconds for both sides; a per-side row's stored seconds is already that total. */
 export function workSeconds(item: Exercise) {
-  const simple = /^(\d+)\s*(s|min)(\s*\/\s*(leg|side|foot))?$/.exec(item.reps)
   if (item.seconds !== undefined) return item.seconds
-  return simple ? Number(simple[1]) * (simple[2] === 'min' ? 60 : 1) * (simple[4] ? 2 : 1) : 0
+  const simple = /^(\d+)\s*(s|min)\b/.exec(item.reps)
+  return simple ? Number(simple[1]) * (simple[2] === 'min' ? 60 : 1) * (sided(item) ? 2 : 1) : 0
+}
+export type Segment = { kind: 'ready' | 'work' | 'switch'; seconds: number; label: string; side?: string }
+/* A timed per-side set runs as two back-to-back clocks, the injured right side first, with a 3 s switch. */
+export function timerPlan(item: Exercise, ready = 5): Segment[] {
+  const total = workSeconds(item)
+  if (!total) return []
+  const start: Segment = { kind: 'ready', seconds: ready, label: 'Get ready' }
+  if (!sided(item)) return [start, { kind: 'work', seconds: total, label: 'Work' }]
+  const named = /\/\s*(side|leg|arm|foot|hand)\b/.test(item.reps)
+  const [a, b] = named ? ['Right', 'Left'] : ['First', 'Second']
+  const half = Math.round(total / 2)
+  return [start,
+    { kind: 'work', seconds: half, label: a + ' · 1/2', side: named ? a : undefined },
+    { kind: 'switch', seconds: 3, label: 'Switch sides', side: named ? b : undefined },
+    { kind: 'work', seconds: total - half, label: b + ' · 2/2', side: named ? b : undefined }]
 }
 export function recoveryReasons(state: State, key: string) {
   const log = state.logs[key] ?? {}
@@ -277,13 +401,12 @@ export function loadKg(load: string) {
   const match = /(\d+(?:\.\d+)?)\s*kg/i.exec(load)
   return match ? Number(match[1]) : undefined
 }
-const perSide = (reps: string) => /\/\s*(leg|side|arm|foot)|each/.test(reps)
 export function stepSeconds(item: Exercise) {
   const work = workSeconds(item)
-  if (work) return work
+  if (work) return work + (sided(item) ? 3 : 0)
   const reps = targetReps(item.reps) ?? 10
   const tempo = item.tempo ? item.tempo.split('-').map(Number).reduce((a, b) => a + b, 0) : 2.6
-  return Math.min(150, Math.max(25, reps * tempo * (perSide(item.reps) ? 2 : 1)))
+  return Math.min(150, Math.max(25, reps * tempo * (sided(item) ? 2 : 1)))
 }
 export function sessionMinutes(sections: Section[]) {
   const queue = queueFor(sections)
@@ -334,16 +457,18 @@ export function formatDuration(seconds: number) {
 }
 
 /* ---------- Strength progress ---------- */
-export type ProgressPoint = { date: string; sets: number; totalReps: number; best: number; bestKg: number; volume: number }
+export type ProgressPoint = { date: string; sets: number; totalReps: number; best: number; bestKg: number; volume: number; capacity: number }
 export function exerciseSeries(state: State, id: string): ProgressPoint[] {
-  return historyFor(state, id).filter(day => day.sets.some(set => set.reps !== undefined)).reverse().map(day => {
-    const sets = day.sets.filter(set => set.reps !== undefined)
+  const capacity = capacitySeries(state, id)
+  return historyFor(state, id).filter(day => day.sets.some(set => set.reps !== undefined || set.secs !== undefined)).reverse().map(day => {
+    const sets = day.sets.filter(set => set.reps !== undefined || set.secs !== undefined)
     const top = sets.reduce((a, b) => ((b.kg ?? 0) > (a.kg ?? 0) || ((b.kg ?? 0) === (a.kg ?? 0) && (b.reps ?? 0) > (a.reps ?? 0)) ? b : a), sets[0])
     return {
       date: day.date, sets: sets.length,
       totalReps: sets.reduce((sum, set) => sum + (set.reps ?? 0), 0),
       best: top.reps ?? 0, bestKg: top.kg ?? 0,
       volume: Math.round(sets.reduce((sum, set) => sum + (set.reps ?? 0) * (set.kg ?? 0), 0)),
+      capacity: capacity.get(day.date) ?? 0,
     }
   })
 }
@@ -352,7 +477,7 @@ export function trainedExercises(state: State) {
   const counts = new Map<string, number>()
   for (const log of Object.values(state.logs)) {
     const seen = new Set<string>()
-    for (const [key, set] of Object.entries(log.sets ?? {})) if (set.reps !== undefined) seen.add(key.split(':')[0])
+    for (const [key, set] of Object.entries(log.sets ?? {})) if (set.reps !== undefined || set.secs !== undefined) seen.add(key.split(':')[0])
     for (const id of seen) counts.set(id, (counts.get(id) ?? 0) + 1)
   }
   return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([id, sessions]) => ({ id, sessions }))

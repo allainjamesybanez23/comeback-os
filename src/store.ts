@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fresh, type State } from './model'
+import { fresh, migrate, type State } from './model'
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -23,8 +23,8 @@ export function useStore() {
       const request = db.transaction('data').objectStore('data').get('program')
       request.onsuccess = () => {
         if (!mounted) return
-        const data = request.result as State | undefined
-        if (data && data.version !== 1) {
+        const data = request.result ? migrate(request.result) : undefined
+        if (data && data.version !== 2) {
           setError('This data was written by a different app version.')
           return
         }

@@ -1,6 +1,6 @@
-import { ArrowRight, Check, ChevronLeft, ChevronRight, Clock3, Layers, ListOrdered, Play, Repeat } from 'lucide-react'
+import { ArrowRight, Check, ChevronLeft, ChevronRight, Clock3, Layers, ListOrdered, Pencil, Play, Repeat } from 'lucide-react'
 import { days, type Exercise, type Section } from '../data/comebackProgram'
-import { dateLabel, dayFor, formatDuration, moduleLabel, moduleOrder, plusDays, programSections, sessionDone, sessionMinutes, sessionStats, type DayLog, type Module, type State } from '../model'
+import { activePhase, dateLabel, dayFor, editKey, formatDuration, moduleLabel, moduleOrder, plusDays, programSections, sessionDone, sessionMinutes, sessionStats, weekFor, type DayLog, type Module, type State } from '../model'
 import { ExerciseRow, moduleBlurb, moduleIcon } from './ui'
 
 type Props = {
@@ -42,6 +42,7 @@ export function Sessions({ state, today, phase, module, date, setModule, setDate
   const isToday = date === today
   const done = sessionDone(log, module)
   const hold = (state.logs[today]?.pain ?? 0) >= 3
+  const edited = module === 'workout' && state.edits[editKey(weekFor(state, date), dayFor(state, date), Math.min(activePhase(state, today), activePhase(state, date)))]
   const Icon = moduleIcon[module]
   return <div className="sessions">
     <div className="sessions-bar">
@@ -63,6 +64,7 @@ export function Sessions({ state, today, phase, module, date, setModule, setDate
         <h1>{module === 'workout' ? day.title : moduleLabel[module]}</h1>
         <p>{module === 'workout' ? day.focus : moduleBlurb[module]}</p>
         <ul className="hero-facts"><li><Clock3 size={15}/>~{minutes} min</li><li><Layers size={15}/>{stats.exercises} exercises</li><li><ListOrdered size={15}/>{stats.sets} sets</li></ul>
+        {edited && <p className="edited-note"><Pencil size={14}/>Your edited plan. Program updates and the coach engine skip this day’s main work until you reset it in Program → Exercise editor.</p>}
       </div>
       <div className="session-lead-actions">
         {isToday || done ? (done ? <span className="done-badge"><Check size={18}/>Complete{log.time?.[module] ? ' · ' + formatDuration(log.time[module]!) : ''}</span> :
@@ -95,6 +97,8 @@ function sectionHint(section: Section) {
   if (section.id === 'cooldown') return 'Bring the heart rate down and loosen what you worked.'
   if (section.id === 'mobility') return 'Starts on the floor and finishes standing, so you never bounce up and down.'
   if (section.id === 'rehab') return 'Range of motion first, then light strength, grip, and a gentle stretch.'
-  if (section.id === 'foam') return 'Stationary pounds first, then V-dribbles, moves and footwork.'
+  if (section.id === 'foam') return 'Stationary pounds first, then V-dribbles, moves, footwork and a reaction drill.'
+  if (section.id === 'foam-right') return 'Soft and slow. Never faster than your left-hand pace. Stop at 2/10 pain.'
+  if (section.id === 'grip') return 'Forearm size and grip for palming. The coach engine picks the variation and dose.'
   return section.rows.length + ' exercises'
 }

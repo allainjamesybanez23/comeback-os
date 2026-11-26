@@ -5,9 +5,9 @@ import { dateLabel, exerciseSeries, formatDuration, recentWeeks, trainedExercise
 import { library } from '../data/library'
 import { ChartTable, ColumnChart, TrendChart, type ChartPoint } from './Charts'
 
-type Metric = 'totalReps' | 'best' | 'volume'
-const metricLabel: Record<Metric, string> = { totalReps: 'Total reps', best: 'Best set', volume: 'Volume' }
-const metricUnit: Record<Metric, string> = { totalReps: 'reps', best: 'reps', volume: 'kg' }
+type Metric = 'totalReps' | 'best' | 'volume' | 'capacity'
+const metricLabel: Record<Metric, string> = { totalReps: 'Total reps', best: 'Best set', volume: 'Volume', capacity: 'Capacity' }
+const metricUnit: Record<Metric, string> = { totalReps: 'reps', best: 'reps', volume: 'kg', capacity: '% of base' }
 
 export function exerciseName(state: State, id: string): Exercise | undefined {
   return library.find(item => item.id === id) ?? Object.values(state.edits).flat().find(item => item.id === id)
@@ -21,7 +21,7 @@ function toPoints(series: ProgressPoint[], metric: Metric): ChartPoint[] {
 }
 function MetricSwitch({ metric, setMetric, volume }: { metric: Metric; setMetric(m: Metric): void; volume: boolean }) {
   return <div className="segmented" role="group" aria-label="Chart measure">
-    {(['totalReps', 'best', ...(volume ? ['volume'] : [])] as Metric[]).map(m => <button key={m} className={metric === m ? 'selected' : ''} aria-pressed={metric === m} onClick={() => setMetric(m)}>{metricLabel[m]}</button>)}
+    {(['capacity', 'totalReps', 'best', ...(volume ? ['volume'] : [])] as Metric[]).map(m => <button key={m} className={metric === m ? 'selected' : ''} aria-pressed={metric === m} onClick={() => setMetric(m)}>{metricLabel[m]}</button>)}
   </div>
 }
 
@@ -29,7 +29,7 @@ function MetricSwitch({ metric, setMetric, volume }: { metric: Metric; setMetric
 export function ExerciseProgress({ state, id }: { state: State; id: string }) {
   const series = useMemo(() => exerciseSeries(state, id), [state.logs, id])
   const volume = series.some(p => p.volume > 0)
-  const [metric, setMetric] = useState<Metric>(volume ? 'volume' : 'totalReps')
+  const [metric, setMetric] = useState<Metric>('capacity')
   if (series.length < 2) return <p className="muted small-note">Log this exercise on two different days to see your progress chart.</p>
   return <div className="exercise-progress">
     <MetricSwitch metric={metric} setMetric={setMetric} volume={volume}/>
@@ -44,7 +44,7 @@ export function StrengthPanel({ state, today }: { state: State; today: string })
   const current = trained.find(entry => entry.id === id) ?? trained[0]
   const series = useMemo(() => current ? exerciseSeries(state, current.id) : [], [state.logs, current?.id])
   const volume = series.some(p => p.volume > 0)
-  const [metric, setMetric] = useState<Metric>('totalReps')
+  const [metric, setMetric] = useState<Metric>('capacity')
   const shownMetric = metric === 'volume' && !volume ? 'totalReps' : metric
   const [table, setTable] = useState(false)
   const [weekly, setWeekly] = useState<'sets' | 'minutes' | 'volume'>('sets')

@@ -1,8 +1,13 @@
 export const categories = [
   'Lower Strength', 'Upper Band Strength', 'Plyometrics & Speed', 'Forearm Rehab',
   'Dynamic Warm-Up', 'Mobility & Stretching', 'Core & Isometrics', 'Dorm Conditioning',
-  'Silent Foam Ball Handles', 'FLAG (Forearm Load Warning)',
+  'Silent Foam Ball Handles', 'Grip & Forearm', 'FLAG (Forearm Load Warning)',
 ] as const
+/* Clearance ladder: now (Phase 0) → light right-hand use OK'd → surgeon phases 1–4. */
+export const gates = ['now', 'light', 'phase1', 'phase2', 'phase3', 'phase4'] as const
+export type Gate = typeof gates[number]
+/* Cheap extras you can switch on in Program. Everything else in the plan uses the base kit. */
+export const optionalEquipment = ['rice bucket', 'hand gripper', 'wrist roller', 'basketball', 'putty'] as const
 
 export type Category = typeof categories[number]
 export type Exercise = {
@@ -21,13 +26,19 @@ export type Exercise = {
   seconds?: number
   contacts?: number
   flag?: boolean
-  minPhase?: number
   adjustment?: string
+  gate?: Gate
+  family?: string   // progression family: easier ↔ harder variants of one job
+  rung?: number     // 1 = easiest in the family
+  equipment?: string[]
+  side?: 'left' | 'right' | 'each' | 'both'
+  range?: [number, number] // dose range per side: reps or seconds
+  reason?: string   // why the coach engine changed this today
 }
 export type Section = { id: string; name: string; duration?: string; rows: Exercise[] }
 export type Day = { name: string; title: string; focus: string; level: 'Hard' | 'Moderate' | 'Easy'; minutes: number; main: Exercise[] }
 
-const [lower, upper, plyo, rehab, warm, mobility, core, conditioning, handles] = categories
+const [lower, upper, plyo, rehab, warm, mobility, core, conditioning, handles, grip] = categories
 const body = 'Bodyweight'
 const left = '17 kg · left hand only'
 const light = 'Light band'
@@ -43,6 +54,12 @@ function rows(prefix: string, category: Category, entries: Entry[]) {
 type Block = [string, Category, Entry]
 function blocks(day: string, entries: Block[]) {
   return entries.map(([key, category, entry]) => row(day + key, category, entry, key))
+}
+
+type Meta = Pick<Exercise, 'gate' | 'family' | 'rung' | 'equipment' | 'side' | 'range'> & { flag?: boolean }
+/* New rows get name-based ids so reordering never breaks your logged history. */
+function more(category: Category, list: [Entry, Meta][]) {
+  return list.map(([entry, meta]) => ({ ...row('x-' + entry[0].toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-$/, ''), category, entry), ...meta }))
 }
 
 /* Equipment on hand: one 17 kg dumbbell, light resistance bands, a bench, a low step,
@@ -61,7 +78,7 @@ export const warmUp = rows('warm-', warm, [
 ])
 
 // Forearm rehab: range of motion → strength → function → stretch.
-export const rehabRows = rows('rehab-', rehab, [
+const rehabBase = rows('rehab-', rehab, [
   ['Wrist flexion / extension', 2, '15', 'wrist', 'Rest the forearm on a table with the hand over the edge. Slowly lift the hand up, then lower it down within your allowed range. | Avoid adding load or forcing the end range.', 20, '2-0-2', 'No weight'],
   ['Radial / ulnar deviation', 2, '15', 'deviate', 'Forearm supported with the thumb up. Tilt the hand up toward the thumb, then down toward the little finger. | Move only at the wrist, not the whole forearm.', 20, '2-0-2', 'No weight'],
   ['Supination / pronation', 2, '15', 'rotate', 'Elbow bent 90° and tucked at your side. Hold a water bottle and slowly turn the palm up, then down. | Avoid swinging the elbow away from the body.', 20, '2-0-2', 'Water bottle · rehab only'],
@@ -71,6 +88,17 @@ export const rehabRows = rows('rehab-', rehab, [
   ['Tennis ball wall toss and catch', 2, '1 min', 'toss', 'Stand about 1 m from a wall and use soft, close-range tosses. Catch with the left hand; any prescribed right-hand catches stay soft. | Avoid fast rebounds or firm right-hand catches.', 20, '', 'Tennis ball', 60],
   ['Prayer / reverse-prayer stretch', 2, '20 s each', 'prayer', 'Press the palms together at chest height and lower the hands slowly. Then place the backs of the hands together, fingers down. | Avoid leaning your weight into the right wrist.', 10, '', 'Gentle stretch', 40],
 ])
+rehabBase.forEach(item => { item.side = item.move === 'toss' ? 'both' : 'right' })
+rehabBase[3].gate = 'light' // band resistance is load, so it waits for the light right-hand OK
+// Daily right-hand range of motion with no load (Phase 0 safe).
+const rehabExtra = more(rehab, [
+  [['Tendon glides', 2, '5 rounds', 'fingers', 'Move slowly through five hand shapes: straight, hook, full fist, tabletop, straight fist. Hold each for five seconds. | Avoid forcing any shape that pulls at the scar.', 15, '', 'No weight'], { gate: 'now', side: 'right', range: [5, 8] }],
+  [['Thumb-to-fingertip opposition', 2, '10 rounds', 'fingers', 'Touch the thumb tip to each fingertip in turn, making a clear O, then open the hand fully. | Avoid rushing or pressing hard.', 15, '', 'No weight'], { gate: 'now', side: 'right', range: [10, 15] }],
+  [['Soft putty squeeze', 2, '10 × 3 s', 'grip', 'Squeeze the softest putty gently for three seconds, then open the hand wide. Effort 2/10. | Avoid hard squeezes or any pain.', 20, '', 'Soft putty'], { gate: 'now', side: 'right', equipment: ['putty'], range: [10, 15] }],
+])
+const rb = (n: number) => rehabBase[n - 1]
+// Range of motion → light strength → grip → function → stretch.
+export const rehabRows = [rb(1), rb(2), rb(3), rehabExtra[0], rehabExtra[1], rb(4), rb(5), rehabExtra[2], rb(6), rb(7), rb(8)]
 
 // Stretching flows floor → kneeling → squat → standing so you never bounce up and down.
 export const dailyMobility = rows('mob-', mobility, [
@@ -212,11 +240,95 @@ export const foamRows = rows('foam-', handles, [
   ['Silent wall tap + high-pickup footwork', 3, '10 / side', 'pickup', 'Jab or drop-step, pound the foam ball, and gather it into the left pocket. | Keep the feet and ball inside the two-meter square.', 15, '', 'Foam ball · left hand'],
 ])
 for (let i = 0; i < 3; i++) foamRows[i].block = 'A' + (i + 1)
-export const expansion = rows('foam-next-', handles, [
+foamRows.forEach(item => { item.side = 'left' })
+for (const [i, family] of [[0, 'pound-low'], [1, 'pound-knee'], [2, 'pound-high'], [4, 'v-side'], [7, 'toss-combo']] as const) Object.assign(foamRows[i], { family, rung: 1 })
+const expansionBase = rows('foam-next-', handles, [
   ['Two-hand crossover', 3, '30 s', 'crossover', 'Alternate hands in a low crossover within the cleared range. | Avoid reaching outside your base.', 15, '', 'Foam ball · both hands', 30],
   ['Behind-the-back wrap', 3, '30 s', 'wrap', 'Wrap the ball close around the hips and receive it softly with the other hand. | Avoid forcing shoulder or wrist range.', 15, '', 'Foam ball · both hands', 30],
-  ['Right-hand symmetry drill', 3, '30 s', 'dribbleRight', 'Mirror the left-hand drill at the cleared pace, stopping if symptoms appear. | Avoid chasing pace or rebound height.', 15, '', 'Foam ball · right hand', 30],
-]).map(item => ({ ...item, minPhase: 1 }))
+]).map((item, i) => ({ ...item, gate: 'phase1' as const, side: 'both' as const, family: ['two-cross', 'two-wrap'][i], rung: 1 }))
+
+const foamL = 'Foam ball · left hand', foamR = 'Foam ball · right hand', foam2 = 'Foam ball · both hands'
+const slot = (list: Exercise[], family: string) => list.find(item => item.family === family)!
+/* Ball handling for a 2 × 2 m dorm space. Families let the coach engine swap a stale drill for a sibling. */
+export const handleDrills = more(handles, [
+  [['Fingertip pulse control · left', 3, '30 s', 'dribbleLow', 'Keep the ball a few centimetres off the floor with rapid fingertip pulses. | Avoid slapping with the palm.', 15, '', foamL, 30], { gate: 'now', family: 'pound-low', rung: 1, equipment: ['foam ball'], side: 'left', range: [30, 45] }],
+  [['Hesitation pound · left', 3, '30 s', 'dribble', 'Pound hard three times, freeze the ball in a soft hesitation at the hip, then explode back into pounds. | Avoid standing up tall on the hesitation.', 15, '', foamL, 30], { gate: 'now', family: 'pound-knee', rung: 1, equipment: ['foam ball'], side: 'left', range: [30, 45] }],
+  [['Eyes-closed pound · left', 3, '30 s', 'dribble', 'Close your eyes and keep a steady knee-height pound by feel. | Open your eyes and reset if the ball drifts.', 15, '', foamL, 30], { gate: 'now', family: 'pound-knee', rung: 1, equipment: ['foam ball'], side: 'left', range: [30, 45] }],
+  [['Three-height pound ladder · left', 3, '30 s', 'dribbleHigh', 'Five pounds at the ankle, five at the knee, five at the shoulder, then back down without stopping. | Avoid letting the ball leave your stance.', 15, '', foamL, 30], { gate: 'now', family: 'pound-high', rung: 1, equipment: ['foam ball'], side: 'left', range: [30, 45] }],
+  [['In-and-out dribble · left', 3, '30 s', 'vSide', 'Push the ball toward your middle, then snap it back outside with the hand on top, like a fake crossover. | Avoid carrying the ball.', 15, '', foamL, 30], { gate: 'now', family: 'v-side', rung: 1, equipment: ['foam ball'], side: 'left', range: [30, 45] }],
+  [['Wall toss + dribble · left', 3, '30 s', 'dual', 'Dribble left while tossing the tennis ball off the wall with the same hand, catching it in rhythm. | Reset if the timing breaks. Never reach with the right hand.', 15, '', 'Foam ball + tennis ball · left only', 30], { gate: 'now', family: 'toss-combo', rung: 1, equipment: ['foam ball', 'tennis ball', 'wall'], side: 'left', range: [30, 45] }],
+  [['Wall fingertip taps · left', 3, '30 s', 'toss', 'Hold the ball on the wall at head height and tap it up and down fast with the left fingertips. | Avoid pushing with the palm.', 15, '', foamL, 30], { gate: 'now', family: 'react-left', rung: 1, equipment: ['foam ball', 'wall'], side: 'left', range: [30, 45] }],
+  [['One-hand drop and catch · left', 3, '10', 'toss', 'Hold the tennis ball at shoulder height, palm down, let go, and snatch it before it passes your waist. | Avoid scooping from below.', 15, '', 'Tennis ball · left hand'], { gate: 'now', family: 'react-left', rung: 1, equipment: ['tennis ball'], side: 'left', range: [10, 20] }],
+  [['Reaction toss off the wall · left', 3, '30 s', 'toss', 'Toss the tennis ball at the wall from your stance and catch it left-handed wherever it comes back. Vary the angle. | Avoid stepping out of your lane.', 15, '', 'Tennis ball · left hand', 30], { gate: 'now', family: 'react-left', rung: 1, equipment: ['tennis ball', 'wall'], side: 'left', range: [30, 45] }],
+  // Right-hand ladder after the light right-hand OK: soft, never faster than your left-hand pace, stop at 2/10 pain.
+  [['Right-hand low pound', 2, '20 s', 'dribbleLow', 'Soft, low pounds at ankle height with the foam ball. Match or stay slower than your left-hand pace. | Stop at 2/10 pain. Avoid hard slaps.', 30, '', foamR, 20], { gate: 'light', family: 'rh-dribble', rung: 1, equipment: ['foam ball'], side: 'right', range: [20, 30] }],
+  [['Right-hand knee-height pound', 2, '30 s', 'dribble', 'Knee-height pounds with a relaxed wrist and fingertip control. | Stop at 2/10 pain or if the rhythm breaks.', 30, '', foamR, 30], { gate: 'light', family: 'rh-dribble', rung: 2, equipment: ['foam ball'], side: 'right', range: [20, 40] }],
+  [['Right-hand pocket pull-back', 2, '30 s', 'gather', 'Pound, then pull the ball back into the right hip pocket and pound again. | Stop at 2/10 pain.', 30, '', foamR, 30], { gate: 'light', family: 'rh-dribble', rung: 3, equipment: ['foam ball'], side: 'right', range: [20, 40] }],
+  [['Right-hand front-to-back V', 2, '30 s', 'vDribble', 'Push the ball forward and pull it back beside the right foot with the fingertips. | Avoid reaching outside your stance.', 30, '', foamR, 30], { gate: 'light', family: 'rh-dribble', rung: 4, equipment: ['foam ball'], side: 'right', range: [20, 40] }],
+  [['Right-hand side V / in-and-out', 2, '30 s', 'vSide', 'Rock the ball across in front of you and back with the hand on top. | Avoid carrying the ball.', 30, '', foamR, 30], { gate: 'light', family: 'rh-dribble', rung: 5, equipment: ['foam ball'], side: 'right', range: [20, 40] }],
+  [['Right-hand dribble + tennis ball toss', 2, '30 s', 'dual', 'Mirror the left drill: dribble right, then toss and catch the tennis ball with the same hand. Start with one low toss. | Never lunge to save a ball.', 30, '', 'Foam ball + tennis ball · right only', 30], { gate: 'light', family: 'rh-dribble', rung: 6, equipment: ['foam ball', 'tennis ball'], side: 'right', range: [20, 40] }],
+  [['Wall fingertip taps · right', 2, '20 s', 'toss', 'Tap the ball up and down the wall at head height with soft right fingertips. | Stop at 2/10 pain.', 20, '', foamR, 20], { gate: 'light', family: 'react-right', rung: 1, equipment: ['foam ball', 'wall'], side: 'right', range: [20, 40] }],
+  [['One-hand drop and catch · right', 2, '8', 'toss', 'Drop the tennis ball from shoulder height and catch it softly with the right hand before your waist. | Avoid grabbing hard.', 20, '', 'Tennis ball · right hand'], { gate: 'light', family: 'react-right', rung: 1, equipment: ['tennis ball'], side: 'right', range: [8, 15] }],
+  [['Around-the-world wraps', 2, '30 s', 'wrap', 'Pass the ball around the waist, then the head, then each knee, hand to hand. | Avoid slapping the ball into the right hand.', 20, '', foam2, 30], { gate: 'light', family: 'two-light', rung: 1, equipment: ['foam ball'], side: 'both', range: [20, 45] }],
+  [['Fingertip ball slaps', 2, '30 s', 'wrap', 'Tip the ball quickly between your fingertips, moving from overhead down to the knees and back. | Avoid catching with the palms.', 20, '', foam2, 30], { gate: 'light', family: 'two-light', rung: 1, equipment: ['foam ball'], side: 'both', range: [20, 45] }],
+  // Two-hand handles after surgeon clearance.
+  [['Spider dribble', 3, '30 s', 'crossover', 'Ball between the feet: tap right, left in front, then right, left behind, fingertips only. | Avoid standing up tall.', 15, '', foam2, 30], { gate: 'phase1', family: 'two-cross', rung: 1, equipment: ['foam ball'], side: 'both', range: [30, 45] }],
+  [['Kill-crossover reset', 3, '30 s', 'crossover', 'Hard low crossover, kill the dribble into a two-hand pocket hold, reset, and go again. | Avoid crossing above the knee.', 15, '', foam2, 30], { gate: 'phase1', family: 'two-cross', rung: 1, equipment: ['foam ball'], side: 'both', range: [30, 45] }],
+  [['Stationary between-the-legs', 3, '30 s', 'weave', 'In a wide stance, push the ball between the legs front to back and switch the lead foot. | Avoid hitting your leg or bending over.', 15, '', foam2, 30], { gate: 'phase1', family: 'two-cross', rung: 1, equipment: ['foam ball'], side: 'both', range: [30, 45] }],
+  [['Stationary behind-the-back', 3, '30 s', 'wrap', 'Wrap the ball behind the hips hand to hand off one bounce. | Avoid twisting the right wrist to save a bad bounce.', 15, '', foam2, 30], { gate: 'phase1', family: 'two-wrap', rung: 1, equipment: ['foam ball'], side: 'both', range: [30, 45] }],
+  [['Figure-8 dribble', 3, '30 s', 'weave', 'Dribble a figure 8 around and through the legs, switching hands each loop. | Keep the dribbles low.', 15, '', foam2, 30], { gate: 'phase1', family: 'two-wrap', rung: 1, equipment: ['foam ball'], side: 'both', range: [30, 45] }],
+  [['Two-ball same-time pound', 3, '30 s', 'dribble', 'Foam ball in the right hand, basketball in the left. Pound both together at knee height. | Avoid letting the right ball rush the left.', 15, '', 'Foam ball + basketball', 30], { gate: 'phase1', family: 'two-ball', rung: 1, equipment: ['foam ball', 'basketball'], side: 'both', range: [30, 45] }],
+  [['Two-ball alternating pound', 3, '30 s', 'dribble', 'Alternate the two balls like pistons, one up while the other is down. | Avoid an uneven rhythm.', 15, '', 'Foam ball + basketball', 30], { gate: 'phase1', family: 'two-ball', rung: 2, equipment: ['foam ball', 'basketball'], side: 'both', range: [30, 45] }],
+  [['Two-ball high-low', 3, '30 s', 'dribbleHigh', 'One ball pounds low while the other pounds shoulder high, then switch. | Avoid looking down.', 15, '', 'Foam ball + basketball', 30], { gate: 'phase1', family: 'two-ball', rung: 3, equipment: ['foam ball', 'basketball'], side: 'both', range: [30, 45] }],
+])
+export const leftHandles = [...foamRows, slot(handleDrills, 'react-left')]
+export const rightHandles = ['rh-dribble', 'react-right', 'two-light'].map(family => slot(handleDrills, family))
+export const expansion = [...expansionBase, slot(handleDrills, 'two-ball')]
+
+/* Forearm size and grip strength: hypertrophy doses (2–4 × 10–20 reps or 20–45 s holds), loaded 3× a week.
+   Left-arm work also helps the right arm keep its strength (cross-education). */
+export const gripDrills = more(grip, [
+  [['Wrist curl · left', 3, '15', 'wrist', 'Forearm on the bench, palm up, dumbbell in the left hand. Let it roll to the fingertips, then curl the wrist up and squeeze. | Avoid lifting the forearm off the bench.', 45, '2-0-1', left], { gate: 'now', family: 'flexors-left', rung: 1, equipment: ['dumbbell', 'bench'], side: 'left', range: [12, 20] }],
+  [['Reverse wrist curl · left', 3, '12', 'wrist', 'Forearm on the bench, palm down. Lift the back of the hand, pause, and lower slowly. Choke up on the handle if it is too heavy. | Avoid swinging or lifting the elbow.', 45, '2-1-2', left], { gate: 'now', family: 'extensors-left', rung: 1, equipment: ['dumbbell', 'bench'], side: 'left', range: [10, 20] }],
+  [['Hammer curl · left', 3, '10', 'curl', 'Thumb up, elbow pinned to your side. Curl to the shoulder and lower for three seconds. | Avoid swinging the body.', 45, '1-0-3', left], { gate: 'now', family: 'curls-left', rung: 1, equipment: ['dumbbell'], side: 'left', range: [8, 15] }],
+  [['Reverse curl · left', 3, '10', 'curl', 'Palm down, elbow at your side. Curl up and lower slowly to build the top of the forearm. | Avoid letting the wrist bend back.', 45, '1-0-3', left], { gate: 'now', family: 'curls-left', rung: 1, equipment: ['dumbbell'], side: 'left', range: [8, 15] }],
+  [['Farmer hold · left', 3, '30 s', 'farmerCarry', 'Stand tall with the dumbbell at your left side and crush the handle. Keep the shoulders level. | Avoid leaning toward the weight.', 45, '', left, 30], { gate: 'now', family: 'holds-left', rung: 1, equipment: ['dumbbell'], side: 'left', range: [30, 60] }],
+  [['Towel thick-grip hold · left', 3, '25 s', 'farmerCarry', 'Wrap a towel around the handle to make it thick, then hold the dumbbell at your side and squeeze hard. | Avoid letting the wrist bend.', 45, '', left, 25], { gate: 'now', family: 'holds-left', rung: 1, equipment: ['dumbbell', 'towel'], side: 'left', range: [20, 45] }],
+  [['Dumbbell-head pinch hold · left', 3, '20 s', 'farmerCarry', 'Pinch one end of the dumbbell between the thumb and flat fingers and hold it at your side. | Avoid curling the fingers into a fist.', 45, '', left, 20], { gate: 'now', family: 'holds-left', rung: 1, equipment: ['dumbbell'], side: 'left', range: [15, 40] }],
+  [['Leverage pronation / supination · left', 2, '10', 'rotate', 'Elbow bent at your side, hold the dumbbell by one end like a hammer. Turn the palm down, then up, slowly. Choke up to make it easier. | Avoid moving the elbow away from the body.', 45, '2-0-2', left], { gate: 'now', family: 'rotation-left', rung: 1, equipment: ['dumbbell'], side: 'left', range: [8, 15] }],
+  [['Leverage radial / ulnar deviation · left', 2, '12', 'deviate', 'Arm at your side, hold the dumbbell by one end, thumb up. Tip the free end up in front, then back behind you. | Avoid bending the elbow.', 45, '2-0-2', left], { gate: 'now', family: 'rotation-left', rung: 1, equipment: ['dumbbell'], side: 'left', range: [10, 15] }],
+  [['Fingertip claw ball hold · left', 2, '20 s', 'grip', 'Grab the foam ball from above with only the fingertips and thumb spread wide, and squeeze. | Avoid letting the palm touch the ball.', 30, '', foamL, 20], { gate: 'now', family: 'claw-left', rung: 1, equipment: ['foam ball'], side: 'left', range: [15, 40] }],
+  [['Basketball claw hold · left', 2, '20 s', 'grip', 'Hold a basketball from above with spread fingertips, arm straight down, and squeeze. This is the palming grip. | Avoid cupping it with the palm.', 30, '', 'Basketball · left hand', 20], { gate: 'now', family: 'claw-left', rung: 2, equipment: ['basketball'], side: 'left', range: [15, 45] }],
+  // Right arm after the light right-hand OK: soft grip and wrist work, never through 2/10 pain.
+  [['Light putty squeeze · right', 3, '12', 'grip', 'Squeeze the putty with the whole right hand for a slow count of two, then open fully. Effort 3/10. | Stop at 2/10 pain.', 30, '', 'Putty · right hand'], { gate: 'light', family: 'grip-right', rung: 1, equipment: ['putty'], side: 'right', range: [10, 20] }],
+  [['Light gripper squeeze · right', 3, '10', 'grip', 'Use the lightest gripper. Close it slowly, hold one second, and open slowly. | Avoid forcing a full close or any pain.', 30, '', 'Hand gripper · lightest'], { gate: 'light', family: 'grip-right', rung: 1, equipment: ['hand gripper'], side: 'right', range: [8, 15] }],
+  [['Light towel wring · right', 2, '6 / direction', 'rotate', 'Hold a rolled towel in both hands and wring it gently one way, then the other, with the right hand leading softly. | Avoid hard twisting.', 30, '', 'Towel'], { gate: 'light', family: 'grip-right', rung: 1, equipment: ['towel'], side: 'right', range: [5, 10] }],
+  [['Gentle rice bucket · right', 2, '30 s', 'rotate', 'Bury the right hand in rice. Slowly open and close it, then turn the wrist side to side. Effort 3/10. | Avoid digging hard or twisting fast.', 30, '', 'Rice bucket', 30], { gate: 'light', family: 'wrist-right', rung: 1, equipment: ['rice bucket'], side: 'right', range: [30, 60] }],
+  [['Fingertip ball taps · right', 2, '30 s', 'dribbleLow', 'Bounce the foam ball softly off the floor using only the right fingertips, low and slow. | Avoid slapping with the palm.', 20, '', foamR, 30], { gate: 'light', family: 'wrist-right', rung: 1, equipment: ['foam ball'], side: 'right', range: [20, 45] }],
+  // Right arm after surgeon clearance: progressive load, starting light.
+  [['Wrist curl · right', 3, '12', 'wrist', 'Forearm on the bench, palm up. Start with a water bottle or the lightest load your surgeon cleared, and curl the wrist up slowly. | Avoid any pain at the plate.', 45, '2-0-2', 'Cleared load · start light'], { gate: 'phase1', family: 'wrist-right', rung: 2, equipment: ['bench'], side: 'right', range: [10, 20] }],
+  [['Wrist roller', 2, '3 rolls', 'wrist', 'Hold the stick at shoulder height with straight arms, roll the bottle up, then lower it by rolling back slowly. | Avoid shrugging or locking the elbows.', 60, '', 'DIY roller · water bottle'], { gate: 'phase1', family: 'wrist-right', rung: 2, equipment: ['wrist roller'], side: 'both', range: [2, 5] }],
+  [['Full rice bucket · right', 3, '45 s', 'rotate', 'Dig, grab, twist and spread the right hand hard in the rice for the full time. | Stop if the plate area aches.', 45, '', 'Rice bucket', 45], { gate: 'phase1', family: 'wrist-right', rung: 2, equipment: ['rice bucket'], side: 'right', range: [30, 60] }],
+  [['Hammer curl · right', 3, '10', 'curl', 'Thumb up, elbow pinned. Use the lightest cleared load and lower for three seconds. | Avoid swinging.', 45, '1-0-3', 'Cleared load · start light'], { gate: 'phase1', family: 'curls-right', rung: 1, side: 'right', range: [8, 15] }],
+  [['Reverse curl · right', 3, '10', 'curl', 'Palm down, elbow at your side. Curl up and lower slowly with a light cleared load. | Avoid letting the wrist bend back.', 45, '1-0-3', 'Cleared load · start light'], { gate: 'phase1', family: 'curls-right', rung: 1, side: 'right', range: [8, 15] }],
+  [['Zottman curl · right', 3, '8', 'curl', 'Curl up palm up, turn the palm down at the top, then lower slowly. | Avoid rushing the turn.', 45, '1-1-3', 'Cleared load · start light'], { gate: 'phase1', family: 'curls-right', rung: 1, side: 'right', range: [6, 12] }],
+  [['Gripper progression · right', 3, '8', 'grip', 'Close the gripper fully for one to two seconds each rep. Move to the next spring only after 15 clean reps. | Avoid half reps or pain at the plate.', 60, '', 'Hand gripper'], { gate: 'phase1', family: 'grip-right', rung: 2, equipment: ['hand gripper'], side: 'right', range: [8, 15] }],
+  [['Pinch hold · right', 3, '20 s', 'farmerCarry', 'Pinch one end of the cleared weight between the thumb and flat fingers and hold it at your side. | Avoid curling into a fist.', 45, '', 'Cleared load · start light', 20], { gate: 'phase1', family: 'grip-right', rung: 2, side: 'right', range: [15, 40] }],
+  [['Farmer carry · right', 3, '30 s', 'farmerCarry', 'Hold the cleared load at your right side and walk slowly and tall. | Avoid leaning or shrugging.', 45, '', 'Cleared load · start light', 30], { gate: 'phase1', family: 'grip-right', rung: 2, side: 'right', range: [20, 60] }],
+  // Phase 3+, zero pain only: palming and fingertip strength.
+  [['Towel-grip farmer hold · both hands', 3, '30 s', 'farmerCarry', 'Wrap a towel around the handle, hold it with both hands in front of the hips, and crush the towel. Trains the towel-hang grip without a bar. | Stop if the plate area aches.', 60, '', '17 kg · towel grip', 30], { gate: 'phase3', family: 'grip-right', rung: 3, equipment: ['dumbbell', 'towel'], side: 'both', range: [20, 45], flag: true }],
+  [['One-hand ball palm and pickup · right', 3, '5', 'pickup', 'Spread the right fingers on a basketball on the floor, grip with the fingertips, lift it to waist height, and set it down. | Avoid using the palm or jerking it up.', 60, '', 'Basketball · right hand'], { gate: 'phase3', family: 'grip-right', rung: 3, equipment: ['basketball'], side: 'right', range: [3, 10], flag: true }],
+  [['Fingertip wall push-up', 3, '10', 'wallPress', 'Hands on the wall on spread fingertips, body straight. Lower and press away. | Avoid collapsing onto the palms.', 60, '', body], { gate: 'phase3', family: 'fingertip-pushup', rung: 1, equipment: ['wall'], side: 'both', range: [8, 15], flag: true }],
+  [['Fingertip incline push-up', 3, '8', 'inclinePushup', 'Fingertips on the bench edge, body straight. Lower under control and press up. | Avoid sagging hips.', 60, '', body], { gate: 'phase3', family: 'fingertip-pushup', rung: 2, equipment: ['bench'], side: 'both', range: [6, 12], flag: true }],
+  [['Fingertip floor push-up', 3, '6', 'pushup', 'On spread fingertips on the floor, lower as a unit and press up. Drop to the knees if needed. | Avoid letting the fingers flatten.', 60, '', body], { gate: 'phase3', family: 'fingertip-pushup', rung: 3, side: 'both', range: [5, 12], flag: true }],
+])
+/* One slot per family; the coach engine picks which member fills it. Two short blocks keep workouts reasonable:
+   A on Monday and Friday, B on Wednesday. Holds and right-hand grip are in both. */
+const gripSlots = (list: string[]) => list.map(family => slot(gripDrills, family))
+export const gripRows = {
+  A: gripSlots(['flexors-left', 'extensors-left', 'holds-left', 'claw-left', 'grip-right', 'wrist-right']),
+  B: gripSlots(['curls-left', 'rotation-left', 'holds-left', 'curls-right', 'grip-right', 'fingertip-pushup']),
+}
 
 export const progression = [
   ['6', 'Learn the moves', '3 sets on strength blocks', 'About 60 contacts', 'Light bands'],
@@ -240,7 +352,7 @@ export const phases = [
     ['Floor push-up', 3, '8–15', 'pushup', 'Lower as a unit and press the floor away within the cleared range. | Avoid elbow flare or sagging hips.', 60],
     ['Dumbbell bent-over row', 3, '10', 'bentRow', 'Hinge and pull the elbow to the hip. | Avoid rotating the chest.', 75, '', '17 kg within clearance'],
     ['Dumbbell floor press', 3, '10', 'press', 'Pause lightly as the upper arm meets the floor and press up. | Avoid bouncing at the bottom.', 75, '', '17 kg within clearance'],
-    ['Farmer carry hold', 3, '20–30 s / hand', 'farmerCarry', 'Hold the dumbbell at your side, stand tall, and walk slowly without leaning. | Stop if the grip or forearm becomes symptomatic.', 60, '', '17 kg within clearance', 20],
+    ['Farmer carry hold', 3, '20–30 s / hand', 'farmerCarry', 'Hold the dumbbell at your side, stand tall, and walk slowly without leaning. | Stop if the grip or forearm becomes symptomatic.', 60, '', '17 kg within clearance', 50],
   ]) },
   { name: 'Return to Contact', span: 'Weeks 5–6 after clearance', basketball: 'Controlled contact, then pickup games', rows: rows('ph3-', upper, [
     ['Alternating single-arm incline DB press', 3, '4–6', 'press', 'Press one arm at a time on a stable bench. | Avoid rotating under the load.', 75, '', '17 kg within clearance'],
@@ -254,7 +366,7 @@ export const phases = [
     ['Progressive dumbbell row and press', 3, 'Programmed reps', 'bentRow', 'Use rows and presses at the programmed load. | Avoid jumping beyond your cleared progression.', 75, '', 'Cleared dumbbell load'],
   ]) },
 ]
-phases.forEach((phase, index) => phase.rows.forEach(item => { item.minPhase = index }))
+phases.forEach((phase, index) => phase.rows.forEach(item => { item.gate = gates[index + 1] }))
 
 export const redFlags = [
   'Pain that wakes you at night',

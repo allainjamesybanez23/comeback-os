@@ -8,7 +8,7 @@ let keepInTray = false
 let quitting = false
 let tray
 const iconPath = join(__dirname, '../build/icon.ico')
-const targets = ['workout', 'mobility', 'rehab', 'foam', 'checkin', '']
+const targets = ['workout', 'mobility', 'rehab', 'foam', 'checkin', 'bed', '']
 const accelerators = { Space: ' ', Enter: 'enter', Left: 'arrowleft', Right: 'arrowright', M: 'm' }
 const appUrl = require('node:url').pathToFileURL(join(__dirname, '../dist/index.html')).href
 function bindWorkoutKeys() {

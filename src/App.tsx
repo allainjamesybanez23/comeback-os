@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Bell, BookOpen, CalendarRange, ChevronRight, Dumbbell, Flame, HeartPulse, Home, LockKeyhole, Trophy, Volume2, VolumeX } from 'lucide-react'
 import { days, type Exercise } from './data/comebackProgram'
-import { activePhase, dateKey, dateLabel, dayFor, deloadText, moduleLabel, plusDays, programSections, recoveryReasons, statsFor, type DayLog, type Module, type SetLog, type State, type Step } from './model'
+import { activePhase, dateKey, dateLabel, dayFor, deloadText, gateLevel, moduleLabel, plusDays, programSections, recoveryReasons, statsFor, type DayLog, type Module, type SetLog, type State, type Step } from './model'
 import { useStore, type Update } from './store'
 import { ExerciseDetail, RedFlags, Wordmark } from './components/ui'
 import { CheckInForm } from './components/Tracking'
@@ -51,21 +51,23 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
   const [route, setRoute] = useState<Route>('today')
   const [planDate, setPlanDate] = useState(today)
   const [module, setModule] = useState<Module>('workout')
-  const [session, setSession] = useState<{ module: Module; key: number }>()
+  // A session keeps the date it started on, so one that runs past midnight stays on that day's plan and log.
+  const [session, setSession] = useState<{ module: Module; key: number; date: string }>()
   const [detail, setDetail] = useState<Exercise>()
   const [red, setRed] = useState(false)
   const [review, setReview] = useState<string>()
   const [remindersOpen, setRemindersOpen] = useState(false)
   const mainRef = useRef<HTMLElement>(null)
   const phase = activePhase(state, today)
+  const level = gateLevel(state, today)
   const log = state.logs[today] ?? {}
   const reasons = recoveryReasons(state, today)
   const pain = log.pain ?? 0
   const hold = pain >= 3
   const streak = statsFor(state, today).streak
   const current = useRef<Exercise>(null)
-  const playerSections = useMemo(() => session ? programSections(state, today, session.module, today) : [],
-    [session?.module, session?.key, state.edits, state.schedule, state.clarity, state.phase, state.weekOverride, state.deload, today])
+  const playerSections = useMemo(() => session ? programSections(state, session.date, session.module, session.date) : [],
+    [session?.module, session?.key, state.edits, state.schedule, state.clarity, state.phase, state.weekOverride, state.deload, state.light, state.equipment])
 
   function go(next: Route) {
     if (next === 'workouts') setPlanDate(today)
@@ -80,15 +82,15 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
   }
   function start(next: Module) {
     armAudio()
-    setSession({ module: next, key: Date.now() })
+    setSession({ module: next, key: Date.now(), date: today })
   }
   function updateLog(date: string, change: (previous: DayLog) => DayLog) {
     update(before => ({ ...before, logs: { ...before.logs, [date]: change(before.logs[date] ?? {}) } }))
   }
-  function setPain(value: number) {
+  function setPain(value: number, date = today) {
     const item = session ? current.current : null
     if (value >= 3 && pain < 3) { setDetail(undefined); setRed(true) }
-    updateLog(today, before => ({ ...before, pain: value, stopped: value >= 3 && item ? [...new Set([...(before.stopped ?? []), item.id])] : before.stopped }))
+    updateLog(date, before => ({ ...before, pain: value, stopped: value >= 3 && item ? [...new Set([...(before.stopped ?? []), item.id])] : before.stopped }))
   }
   function finished(before: DayLog, m: Module): DayLog {
     const easy = days[dayFor(state, today)].level === 'Easy'
@@ -100,21 +102,21 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
       reason: undefined,
     }
   }
-  function record(m: Module, step: Step, data: SetLog, isLast: boolean) {
+  function record(date: string, m: Module, step: Step, data: SetLog, isLast: boolean) {
     current.current = step.item
-    updateLog(today, before => {
+    updateLog(date, before => {
       const next = { ...before, sets: { ...before.sets, [step.id]: data } }
       return isLast ? finished(next, m) : next
     })
   }
-  function addTime(m: Module, seconds: number) {
-    updateLog(today, before => ({ ...before, time: { ...before.time, [m]: (before.time?.[m] ?? 0) + seconds } }))
+  function addTime(date: string, m: Module, seconds: number) {
+    updateLog(date, before => ({ ...before, time: { ...before.time, [m]: (before.time?.[m] ?? 0) + seconds } }))
   }
-  function markStarted(m: Module) {
-    updateLog(today, before => before.started?.[m] ? before : { ...before, started: { ...before.started, [m]: Date.now() } })
+  function markStarted(date: string, m: Module) {
+    updateLog(date, before => before.started?.[m] ? before : { ...before, started: { ...before.started, [m]: Date.now() } })
   }
-  function stop(item: Exercise) {
-    updateLog(today, before => ({ ...before, stopped: [...new Set([...(before.stopped ?? []), item.id])] }))
+  function stop(item: Exercise, date = today) {
+    updateLog(date, before => ({ ...before, stopped: [...new Set([...(before.stopped ?? []), item.id])] }))
   }
   function setting(key: Setting) {
     const defaults: Record<Setting, boolean> = { audio: true, voice: true, tempo: false, autoflow: true }
@@ -133,7 +135,7 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
     start(target)
   })
   const dialogs = <>
-    {detail && <ExerciseDetail exercise={detail} phase={phase} log={log} state={state} today={today} close={() => setDetail(undefined)}/>}
+    {detail && <ExerciseDetail exercise={detail} phase={phase} level={level} log={log} state={state} today={today} close={() => setDetail(undefined)}/>}
     {red && <RedFlags close={() => setRed(false)}/>}
     {remindersOpen && <RemindersDialog state={state} update={update} close={() => setRemindersOpen(false)} test={reminders.test}/>}
     {reminders.toastView}
@@ -141,14 +143,14 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
   </>
 
   if (session) {
-    const m = session.module
+    const { module: m, date } = session
     return <>
-      <WorkoutPlayer key={m + session.key} module={m} title={m === 'workout' ? days[dayFor(state, today)].title : moduleLabel[m]}
-        sections={playerSections} state={state} today={today} phase={phase}
-        record={(step, data, isLast) => record(m, step, data, isLast)}
-        complete={() => updateLog(today, before => finished(before, m))}
-        addTime={seconds => addTime(m, seconds)} markStarted={() => markStarted(m)}
-        stop={stop} setPain={setPain} openFlags={() => setRed(true)} showDetail={setDetail} onSetting={setting}
+      <WorkoutPlayer key={m + session.key} module={m} title={m === 'workout' ? days[dayFor(state, date)].title : moduleLabel[m]}
+        sections={playerSections} state={state} today={date} phase={phase} level={gateLevel(state, date)}
+        record={(step, data, isLast) => record(date, m, step, data, isLast)}
+        complete={() => updateLog(date, before => finished(before, m))}
+        addTime={seconds => addTime(date, m, seconds)} markStarted={() => markStarted(date, m)}
+        stop={item => stop(item, date)} setPain={value => setPain(value, date)} openFlags={() => setRed(true)} showDetail={setDetail} onSetting={setting}
         onExit={() => { setSession(undefined); setRoute('today') }} startNext={next => start(next)}/>
       {dialogs}
     </>
@@ -185,7 +187,7 @@ function Workspace({ state, update, error }: { state: State; update: Update; err
         </div>}
         {route === 'today' && <Today state={state} today={today} phase={phase} start={start} preview={preview} showDetail={setDetail} setPain={setPain} openFlags={() => setRed(true)} openProgress={() => go('progress')} openReview={setReview}/>}
         {route === 'workouts' && <Sessions state={state} today={today} phase={phase} module={module} date={planDate} setModule={setModule} setDate={setPlanDate} start={start} showDetail={setDetail}/>}
-        {route === 'library' && <Library phase={phase} open={setDetail}/>}
+        {route === 'library' && <Library state={state} phase={phase} level={level} open={setDetail}/>}
         {route === 'progress' && <Progress state={state} update={update} today={today} openReview={setReview}/>}
         {route === 'checkin' && <CheckInForm state={state} update={update} today={today}/>}
         {route === 'program' && <Program state={state} update={update} today={today} navigate={date => preview('workout', date)}/>}

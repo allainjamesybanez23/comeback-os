@@ -86,7 +86,7 @@ function equipmentFor(exercise: Exercise, motion: Motion, protectedArm: boolean)
   const band = Boolean(motion.band) && /band/i.test(load)
   const hasDb = /\bkg\b|dumbbell|\bDB\b/i.test(load)
   const db = hasDb ? (motion.db ?? (/left/i.test(load) ? 'l' : 'both')) : undefined
-  const guard = protectedArm && motion.arms !== 'both' && !exercise.flag && exercise.category !== 'Forearm Rehab'
+  const guard = protectedArm && motion.arms !== 'both' && !exercise.flag && exercise.category !== 'Forearm Rehab' && exercise.side !== 'right'
   return { band, db, guard }
 }
 
@@ -280,10 +280,10 @@ export function ExerciseAnimation({ exercise, protectedArm, playing, compact = f
     return <figure className={'anim anim-empty ' + (compact ? 'compact ' : '') + className}><ClipboardList size={compact ? 22 : 34}/><figcaption>{compact ? 'No demo' : 'No movement demo for this step. Follow the cues.'}</figcaption></figure>
   }
   return <figure className={'anim ' + (compact ? 'compact ' : '') + className}>
-    <div className="anim-stage">{figure}</div>
+    {/* Right-hand drills reuse the left-hand rig, mirrored. */}
+    <div className={'anim-stage' + (exercise.side === 'right' && model && exercise.move !== 'dribbleRight' ? ' mirror' : '')}>{figure}</div>
     {!compact && label && <span className="anim-label" aria-live="off">{label}</span>}
     {controls && <button type="button" className="anim-toggle" onClick={() => setOverride(!run)} aria-label={run ? 'Pause demo' : 'Play demo'} title={run ? 'Pause demo' : 'Play demo'}>{run ? <Pause size={15}/> : <Play size={15}/>}</button>}
     {!compact && motion && <figcaption>{motion.caption}</figcaption>}
   </figure>
 }
-export function hasMotion(exercise: Exercise) { return Boolean(motionFor(exercise.move)) }

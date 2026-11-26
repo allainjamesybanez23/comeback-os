@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 
 const packages = [
-  'react', 'react-dom', 'lucide-react', 'tailwindcss', '@fontsource/barlow-condensed',
+  'react', 'react-dom', 'lucide-react', '@fontsource/barlow-condensed',
   '@fontsource-variable/inter', '@fontsource-variable/jetbrains-mono',
 ]
 const licenseText = await Promise.all(packages.map(async name => name + '\n\n' +

@@ -7,13 +7,13 @@ import { ExerciseAnimation } from './ExerciseAnimation'
 import { ExerciseProgress } from './Strength'
 import { bestSet, blockedReason, dateLabel, historyFor, type DayLog, type Module, type State } from '../model'
 
-const icons = [Dumbbell, BicepsFlexed, Zap, HeartPulse, Activity, Move, Shield, Footprints, Circle, AlertTriangle]
+const icons = [Dumbbell, BicepsFlexed, Zap, HeartPulse, Activity, Move, Shield, Footprints, Circle, Hand, AlertTriangle]
 export const moduleIcon: Record<Module, LucideIcon> = { workout: Dumbbell, mobility: Waves, rehab: Hand, foam: Sparkles }
 export const moduleBlurb: Record<Module, string> = {
   workout: 'Warm-up · main work · cooldown',
   mobility: 'Floor-to-standing stretch flow',
   rehab: 'Right forearm range, strength and grip',
-  foam: 'Silent left-hand foam-ball handles',
+  foam: 'Left-hand handles, plus the right-hand ladder once OK’d',
 }
 
 export function CategoryPill({ item }: { item: Exercise }) {
@@ -114,8 +114,8 @@ export function Rings({ values, size = 132, stroke = 11 }: { values: { value: nu
 /* Session colors, validated as a categorical set on the dark surface (lightness band, chroma, colorblind separation, contrast). */
 export const ringTones = { workout: '#D95926', mobility: '#199E70', rehab: '#3987E5', foam: '#C98500' }
 
-export function ExerciseDetail({ exercise, phase, log, state, close, today }: { exercise: Exercise; phase: number; log: DayLog; state: State; close(): void; today: string }) {
-  const reason = blockedReason(exercise, log, phase)
+export function ExerciseDetail({ exercise, phase, level, log, state, close, today }: { exercise: Exercise; phase: number; level: number; log: DayLog; state: State; close(): void; today: string }) {
+  const reason = blockedReason(exercise, log, level)
   const history = historyFor(state, exercise.id).slice(0, 5)
   const best = bestSet(historyFor(state, exercise.id))
   const cues = exercise.cue.split(/(?<=\.)\s+/).filter(Boolean)
@@ -130,6 +130,7 @@ export function ExerciseDetail({ exercise, phase, log, state, close, today }: { 
       <div><dt>Rest</dt><dd className="mono">{exercise.rest ? exercise.rest + ' s' : 'None · keep moving'}</dd></div>
     </dl>
     {exercise.adjustment && <p className="notice">{exercise.adjustment}</p>}
+    {exercise.reason && <p className="coach-note"><Sparkles size={14}/>{exercise.reason}</p>}
     <WhyItHelps item={exercise}/>
     <h3>How to</h3><ol className="cue-list">{cues.map((cue, i) => <li key={i}>{cue}</li>)}</ol>
     <h3>Avoid</h3><p className="avoid">{exercise.mistake || 'Keep the movement controlled and within your prescribed range.'}</p>

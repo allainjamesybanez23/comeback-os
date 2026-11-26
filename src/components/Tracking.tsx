@@ -71,6 +71,8 @@ export function Calendar({ state, update, today, stats = true }: TrackerProps & 
       return { ...before, logs: { ...before.logs, [selected]: {
         ...before.logs[selected], status: status || undefined, reason: status === 'skipped' ? reason || undefined : undefined,
         rehab, contacts: contacts === '' ? undefined : Number(contacts), time,
+        // Unlogging here also clears the finished-session flags, so rings, review and badges agree with the calendar.
+        done: { ...before.logs[selected]?.done, ...(status === 'full' || status === 'recovery' ? {} : { workout: false }), ...(rehab ? {} : { rehab: false }) },
       } } }
     })
     setSelected('')
@@ -120,7 +122,7 @@ const fields: [keyof CheckIn, string, string, number, number, number][] = [
   ['kcal','Calories','kcal',0,10000,1], ['protein','Protein','g',0,500,1],
   ['water','Water','L',0,15,.1], ['sleep','Sleep','h',0,24,.1],
   ['weight','Morning weight','kg',30,300,.1], ['hr','Resting heart rate','bpm',25,220,1],
-  ['soreness','Soreness duration','h',0,999,1],
+  ['soreness','Soreness duration','h',0,999,1], ['morning','Morning forearm pain / stiffness','/10',0,10,1],
 ]
 export function CheckInForm({ state, update, today }: TrackerProps) {
   const [key, setKey] = useState(today)
@@ -164,9 +166,10 @@ function DailyFields({ state, update, today, keyDate, setDate }: TrackerProps & 
   </div>
 }
 
-const measures: [keyof Omit<Benchmark,'toes'>,string,string,number][] = [
+const measures: [keyof Omit<Benchmark,'toes'|'pickup'>,string,string,number][] = [
   ['ankleL','Left knee-to-wall','cm',10], ['ankleR','Right knee-to-wall','cm',10],
   ['squat','Deep squat hold','s',60], ['hipL','Left 90/90 upright','s',30], ['hipR','Right 90/90 upright','s',30],
+  ['palm','Palm hold (basketball, one hand)','s',5],
 ]
 function BenchmarkForm({ state, update, today }: TrackerProps) {
   const [period,setPeriod] = useState(today.slice(0,7))
@@ -175,7 +178,7 @@ function BenchmarkForm({ state, update, today }: TrackerProps) {
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const values = new FormData(event.currentTarget)
-    const result: Benchmark = { toes: values.get('toes') === 'on' }
+    const result: Benchmark = { toes: values.get('toes') === 'on', pickup: values.get('pickup') === 'on' }
     for (const [key] of measures) {
       const value = values.get(key)
       if (value !== '') result[key] = Number(value)
@@ -189,6 +192,7 @@ function BenchmarkForm({ state, update, today }: TrackerProps) {
     <form className="benchmark-form form-grid" key={period} onSubmit={save} onChange={() => setSaved(false)}>
       {measures.map(([key,label,unit,target]) => <label className="field" key={key}>{label}<span className="unit-input"><input name={key} type="number" min="0" max="600" step={unit === 'cm' ? .1 : 1} defaultValue={data[key]}/><span>{unit}</span></span><small>Goal ≥{target} {unit}{(data[key] ?? -1) >= target && ' · Met'}</small></label>)}
       <label className="checkbox"><input name="toes" type="checkbox" defaultChecked={data.toes}/> Fingertips reach toes</label>
+      <label className="checkbox"><input name="pickup" type="checkbox" defaultChecked={data.pickup}/> One-hand basketball pickup from the floor</label>
       <div className="form-footer"><button className="button" type="submit"><Check size={17}/>Save benchmark</button>{saved && <span role="status">Saved locally</span>}</div>
     </form>
   </section>

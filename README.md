@@ -4,8 +4,8 @@ A Windows desktop training and recovery app. The installer and portable edition 
 
 ## Run the included build
 
-- Run **Comeback-OS-Setup-1.0.0.exe** for a per-user installation.
-- Run **Comeback-OS-Portable-1.0.0.exe** directly to launch without installing. The portable edition stores its workouts in the Windows profile, so logs survive closing it.
+- Run **Comeback-OS-Setup-1.1.0.exe** for a per-user installation.
+- Run **Comeback-OS-Portable-1.1.0.exe** directly to launch without installing. The portable edition stores its workouts in the Windows profile, so logs survive closing it.
 - If using the unpacked Windows ZIP, extract the full folder and run **Comeback OS.exe** inside it. Keep the executable with its runtime files.
 - Both editions are unsigned. Build with your own Windows signing certificate if you distribute the app.
 
@@ -24,16 +24,22 @@ The included executables were compiled from electron-builder's Windows app direc
 
 Each day has four separate sessions on the **Today** screen:
 
-- **Workout** – warm-up → main work → cooldown. Supersets alternate (A1 → A2 → rest → repeat) and every block uses the same set count, so rounds stay clean.
+- **Workout** – warm-up → main work → (Mon/Wed/Fri) grip & forearm → cooldown. Supersets alternate (A1 → A2 → rest → repeat) and every block uses the same set count, so rounds stay clean.
 - **Stretching** – a floor-to-standing flow (long flow on Sunday).
-- **Forearm rehab** – range of motion → light strength → grip → toss → stretch.
-- **Ball handling** – silent left-hand foam-ball drills.
+- **Forearm rehab** – range of motion (incl. tendon glides and thumb opposition) → light strength → grip → toss → stretch.
+- **Ball handling** – left-hand foam-ball drills plus a reaction drill; a right-hand ladder (6 rungs) once light right-hand use is OK'd; two-hand drills after clearance.
 
-Equipment: one 17 kg dumbbell, light bands, a bench, a low step, a wall, a foam ball, a tennis ball, a pillow and floor tape. Nothing needs a door anchor or pull-up bar.
+Equipment: one 17 kg dumbbell, light bands, a bench, a low step, a wall, a foam ball, a tennis ball, a pillow and floor tape. Nothing needs a door anchor or pull-up bar. Optional extras (rice bucket, hand gripper, DIY wrist roller, real basketball, putty) are switched on in **Program → Weeks & phases**; exercises needing gear you don't have stay hidden.
+
+## Gates and the coach engine
+
+Every exercise has a gate: **now** (Phase 0: right arm range of motion only, left arm full load) → **light** (the date you enter after your follow-up for light right-hand use) → **phase 1–4** (surgeon clearance). Pain rules always win: 3/10 stops training, flagged moves need 0/10, right-hand work stops at 2/10. Only you can unlock a gate.
+
+`src/engine.ts` is a small learning model per exercise. Capacity is a moving average of what you did ÷ the base dose, nudged by RPE (one tap after each set). Today's dose is capacity × readiness (sleep, soreness, resting HR, pain), capped at ±12 % per session and ±20 % per week on the right arm. Exercises sit in families of easier ↔ harder variants: two sessions above the range at RPE ≤ 7 with no pain moves you up a rung; a miss, RPE 9+, pain ≥ 2/10 or a worse next morning moves you down; three sessions without gain swaps to a sibling picked by seeded Thompson sampling. Every change shows a one-line reason in the player and on Today, and Progress charts each exercise's capacity. Manual edits in the exercise editor override the engine.
 
 ## Workout player
 
-The animated movement guide sits beside the timer for every set, and shows the next exercise during rest. Timed sets get a 5-second get-ready countdown; rests flow straight into the next set. The offline voice coach (Windows voices) calls out exercises, rests and countdowns.
+The animated movement guide sits beside the timer for every set, and shows the next exercise during rest. Timed sets get a 5-second get-ready countdown; per-side holds run as two clocks (right side first, a 3-second switch, then left) with no clicks; rests flow straight into the next set. The offline voice coach (Windows voices) calls out exercises, rests and countdowns.
 
 - **Enter** – log the set / start a timed set / skip rest
 - **Space** – pause or resume the clock (or the tempo metronome on rep sets)

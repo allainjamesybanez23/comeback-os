@@ -30,7 +30,8 @@ export function Today({ state, today, phase, start, preview, showDetail, setPain
     const sections = programSections(state, today, m, today)
     return [m, { sections, minutes: sessionMinutes(sections), stats: sessionStats(sections, log), done: sessionDone(log, m) }]
   })) as Record<Module, { sections: ReturnType<typeof programSections>; minutes: number; stats: ReturnType<typeof sessionStats>; done: boolean }>,
-  [state.edits, state.schedule, state.clarity, state.phase, state.weekOverride, state.deload, state.logs[today], today])
+  [state.edits, state.schedule, state.clarity, state.phase, state.weekOverride, state.deload, state.logs, state.light, state.equipment, state.hrBaseline, today])
+  const changes = [...new Map((['workout', 'rehab', 'foam'] as Module[]).flatMap(m => sessions[m].sections.flatMap(section => section.rows)).filter(row => row.reason).map(row => [row.id, row])).values()]
   const main = sessions.workout.sections.find(section => section.id === 'main')?.rows.filter(row => row.move !== 'plan') ?? []
   useEffect(() => {
     if (main.length < 2) return
@@ -153,6 +154,11 @@ export function Today({ state, today, phase, start, preview, showDetail, setPain
             </ul>
           </div>
         </section>
+
+        {changes.length > 0 && <section className="panel coach-card">
+          <div className="card-heading"><Sparkle size={18}/><h2>Coach changes today</h2></div>
+          <ul>{changes.slice(0, 8).map(row => <li key={row.id}><strong>{row.name}</strong><span>{row.reason}</span></li>)}</ul>
+        </section>}
 
         <section className="panel countdown-card">
           <Court className="countdown-court"/>

@@ -1,17 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowRight, Check, ChevronLeft, ChevronRight, Clock3, Flame, LockKeyhole, Mic, MicOff, Minus, Pause, Play, Plus, SkipForward, Timer, Trophy, Volume2, VolumeX, X } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Check, ChevronLeft, ChevronRight, Clock3, Flame, LockKeyhole, Mic, MicOff, Minus, Pause, Play, Plus, SkipForward, Sparkle, Timer, Trophy, Volume2, VolumeX, X } from 'lucide-react'
 import type { Exercise, Section } from '../data/comebackProgram'
 import { quotes } from '../data/comebackProgram'
-import { blockedReason, historyFor, loadKg, moduleLabel, moduleOrder, queueFor, sessionDone, statsFor, targetReps, weekRings, workSeconds, type Module, type SetLog, type State, type Step } from '../model'
+import { blockedReason, historyFor, loadKg, moduleLabel, moduleOrder, queueFor, sessionDone, sided, statsFor, targetReps, timerPlan, weekRings, workSeconds, type Module, type SetLog, type State, type Step } from '../model'
 import { armAudio, chime, tempoTicks } from '../audio'
 import { hush, speak, spokenDose } from '../voice'
 import { badges, unlocked } from '../achievements'
 import { ExerciseAnimation } from './ExerciseAnimation'
 import { CategoryPill, Dialog, Readiness, Rings, WhyItHelps, formatClock, moduleIcon, ringTones } from './ui'
 
-type Phase = 'idle' | 'ready' | 'work' | 'rest' | 'finish'
+type Phase = 'idle' | 'ready' | 'work' | 'switch' | 'rest' | 'finish'
 type Clock = { left: number; duration: number; deadline?: number }
-const READY = 5
 export type Setting = 'audio' | 'voice' | 'tempo' | 'autoflow'
 type Props = {
   module: Module
@@ -20,6 +19,7 @@ type Props = {
   state: State
   today: string
   phase: number
+  level: number
   record(step: Step, data: SetLog, isLast: boolean): void
   complete(): void
   addTime(seconds: number): void
@@ -76,6 +76,9 @@ export function WorkoutPlayer(props: Props) {
   const [background, setBackground] = useState(false)
   const [hotkeyError, setHotkeyError] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [seg, setSeg] = useState(0)
+  const [rated, setRated] = useState<{ step: Step; data: SetLog }>()
+  const worked = useRef(0)
   const startedAt = useRef(performance.now())
   const priorTime = useRef(log.time?.[module] ?? 0)
   const flushed = useRef(0)
@@ -92,8 +95,9 @@ export function WorkoutPlayer(props: Props) {
 
   const step = queue[index]
   const item = step?.item
-  const blocked = item ? blockedReason(item, log, props.phase) : ''
+  const blocked = item ? blockedReason(item, log, props.level) : ''
   const seconds = item ? workSeconds(item) : 0
+  const plan = item ? timerPlan(item) : []
   const manual = Boolean(item && (item.category === 'Plyometrics & Speed' || item.id.startsWith('circuit-') && ['jump', 'skate'].includes(item.move)) && item.contacts === undefined)
   const kgBase = item ? loadKg(item.load) : undefined
   const lastSets = item ? historyFor(state, item.id, today)[0]?.sets : undefined
@@ -103,7 +107,8 @@ export function WorkoutPlayer(props: Props) {
   const elapsedNow = () => Math.round((performance.now() - startedAt.current) / 1000)
   /* Session time is saved in pieces: on finish, on exit and when the player closes,
      so leaving and resuming later still adds up to the real total. */
-  function activate() { if (!active.current) { active.current = true; latest.current.markStarted() } }
+  // The session clock starts at the first Start or Log, not when the player opens.
+  function activate() { if (!active.current) { active.current = true; startedAt.current = performance.now(); latest.current.markStarted() } }
   function flushTime() {
     if (!active.current) return
     const now = elapsedNow(), delta = now - flushed.current
@@ -128,7 +133,7 @@ export function WorkoutPlayer(props: Props) {
   }, [step?.id])
   useEffect(() => {
     if (phase === 'finish') return
-    const interval = window.setInterval(() => setElapsed(elapsedNow()), 1000)
+    const interval = window.setInterval(() => { if (active.current) setElapsed(elapsedNow()) }, 1000)
     return () => clearInterval(interval)
   }, [phase])
   useEffect(() => { if (blocked) { setClock(undefined); setTempoRunning(false); if (phase !== 'finish' && phase !== 'rest') setPhase('idle') } }, [blocked])
@@ -136,9 +141,8 @@ export function WorkoutPlayer(props: Props) {
   /* Timer engine: one deadline, handlers read the latest state through a ref. */
   const onEnd = useRef<() => void>(() => undefined)
   onEnd.current = () => {
-    if (phase === 'ready') startWork()
-    else if (phase === 'work') workEnd()
-    else if (phase === 'rest') { beep(860, true); goTo(index, true) }
+    if (phase === 'rest') { beep(860, true); goTo(index, true) }
+    else if (phase === 'ready' || phase === 'work' || phase === 'switch') segmentDone()
   }
   useEffect(() => {
     if (!clock?.deadline) return
@@ -181,17 +185,26 @@ export function WorkoutPlayer(props: Props) {
     setPhase(kind)
     setClock({ left: duration, duration, deadline: performance.now() + duration * 1000 })
   }
+  /* Timed sets follow timerPlan: get ready → work, or for per-side sets get ready → side 1 → switch → side 2. */
+  function runSeg(i: number, target = step) {
+    const part = timerPlan(target.item)[i]
+    setSeg(i)
+    run(part.kind, part.seconds)
+    if (part.kind === 'ready') say(`Get ready. ${target.item.name}.`)
+    else if (part.kind === 'switch') { beep(650); say(part.side ? `Switch. ${part.side} side.` : 'Switch.') }
+    else { beep(860, true); say(i === 1 && part.side ? `Go. ${part.side} side.` : 'Go') }
+  }
   function startReady(target = step) {
     if (!target) return
     armAudio()
     activate()
-    run('ready', READY)
-    say(`Get ready. ${target.item.name}.`)
+    worked.current = 0
+    runSeg(0, target)
   }
-  function startWork() {
-    beep(860, true)
-    run('work', seconds)
-    say('Go')
+  function segmentDone(early = false) {
+    if (phase === 'work' && clock) worked.current += early ? clock.duration - clock.left : clock.duration
+    if (seg + 1 < plan.length) runSeg(seg + 1)
+    else workEnd()
   }
   function workEnd() {
     beep(860, true)
@@ -209,7 +222,7 @@ export function WorkoutPlayer(props: Props) {
     setTempoRunning(false)
     if (!next) return
     const timed = workSeconds(next.item) > 0
-    if (auto && timed && autoflow && !blockedReason(next.item, log, props.phase)) startReady(next)
+    if (auto && timed && autoflow && !blockedReason(next.item, log, props.level)) startReady(next)
     else { setPhase('idle'); setClock(undefined); announce(next) }
   }
   function upcoming(from: number) {
@@ -222,14 +235,17 @@ export function WorkoutPlayer(props: Props) {
     if (manual && (contacts === '' || !Number.isInteger(count) || count < 0 || count > 500)) { setContactError(true); return }
     armAudio()
     activate()
-    const data: SetLog = { contacts: manual ? count : item.contacts ?? 0, at: Date.now() }
+    // Target, worked seconds and forearm pain feed the coach engine.
+    const data: SetLog = { contacts: manual ? count : item.contacts ?? 0, at: Date.now(), pain: log.pain ?? 0 }
     const fresh = inputStep.current === step.id
     const repCount = fresh ? reps : targetReps(item.reps) ?? 0
     const weight = fresh ? kg : lastSet?.kg ?? kgBase ?? 0
-    if (!seconds && repCount > 0) { data.reps = repCount; if (showKg && weight > 0) data.kg = weight }
+    if (seconds) { data.target = seconds; data.secs = fromTimer || pending ? Math.min(seconds, worked.current) : seconds }
+    else if (repCount > 0) { data.reps = repCount; data.target = targetReps(item.reps); if (showKg && weight > 0) data.kg = weight }
     const after = upcoming(index)
     const isLast = after < 0
     props.record(step, data, isLast)
+    setRated({ step, data })
     setTempoRunning(false)
     setPending(false)
     if (isLast) { finish(); return }
@@ -261,8 +277,13 @@ export function WorkoutPlayer(props: Props) {
   function primary() {
     if (phase === 'finish' || blocked) return
     if (phase === 'rest') { beep(860, true); goTo(index, true); return }
-    if (phase === 'ready' || phase === 'work') { toggle(); return }
+    if (phase === 'ready' || phase === 'work' || phase === 'switch') { toggle(); return }
     logSet()
+  }
+  function rate(rpe: number) {
+    if (!rated) return
+    props.record(rated.step, { ...rated.data, rpe }, false)
+    setRated(undefined)
   }
   function moveExercise(direction: -1 | 1) {
     const ids = [...new Set(queue.map(entry => entry.item.id))]
@@ -342,7 +363,12 @@ export function WorkoutPlayer(props: Props) {
 
   if (!queue.length) return <div className="player-shell">{header}<div className="player-empty"><p>This session has no exercises.</p><button className="button" onClick={props.onExit}>Back</button></div></div>
 
-  if (phase === 'finish') return <div className="player-shell" ref={root} tabIndex={-1}>{header}<Finish {...props} startedBadges={badgeSnapshot.current} elapsed={elapsed} queue={queue}/>{dialogs}</div>
+  const rpeRow = rated && <div className="rpe-row" role="group" aria-label={'How hard was ' + rated.step.item.name + '? Effort 1 to 10'}>
+    <span>How hard was that set?</span>
+    {[5, 6, 7, 8, 9, 10].map(n => <button key={n} type="button" className="rpe-btn mono" onClick={() => rate(n)} title={n <= 6 ? 'Easy, 4+ reps left' : n === 7 ? '3 reps left' : n === 8 ? '2 reps left' : n === 9 ? '1 rep left' : 'Max effort'}>{n}</button>)}
+    <button type="button" className="quiet small" onClick={() => setRated(undefined)} aria-label="Skip effort rating"><X size={14}/></button>
+  </div>
+  if (phase === 'finish') return <div className="player-shell" ref={root} tabIndex={-1}>{header}{rpeRow}<Finish {...props} startedBadges={badgeSnapshot.current} elapsed={elapsed} queue={queue}/>{dialogs}</div>
 
   if (!step || !item) return null
   const timed = seconds > 0
@@ -387,6 +413,7 @@ export function WorkoutPlayer(props: Props) {
           {item.tempo && <span className="chip mono">Tempo {item.tempo}</span>}
           {item.adjustment && !circuit && <span className="chip accent">{item.adjustment}</span>}
         </div>
+        {item.reason && <p className="coach-note"><Sparkle size={14}/>{item.reason}</p>}
 
         {blocked ? <div className="blocked">
           <div className="alert" role="status"><LockKeyhole size={18}/>{blocked}</div>
@@ -395,12 +422,14 @@ export function WorkoutPlayer(props: Props) {
           <div className="big-display">
             {phase === 'ready' && clock ? <TimerRing fraction={clock.left / clock.duration} tone={ringTone} urgent>
               <span className="ring-label">Get ready</span><strong className="ring-count mono">{clock.left}</strong>
+            </TimerRing> : phase === 'switch' && clock ? <TimerRing fraction={clock.left / clock.duration} tone="#8CA9F5" urgent>
+              <span className="ring-label">Switch sides</span><strong className="ring-count mono">{clock.left}</strong><span className="ring-label">{plan[seg + 1]?.label}</span>
             </TimerRing> : phase === 'work' && clock ? <TimerRing fraction={clock.left / clock.duration} tone={ringTone} urgent={urgent}>
-              <span className="ring-label">{clock.deadline ? 'Work' : 'Paused'}</span><strong className="ring-time mono">{formatClock(clock.left)}</strong>
+              <span className="ring-label">{clock.deadline ? plan[seg]?.label ?? 'Work' : 'Paused'}</span><strong className="ring-time mono">{formatClock(clock.left)}</strong>
             </TimerRing> : phase === 'rest' && clock ? <TimerRing fraction={clock.left / clock.duration} tone={ringTone} urgent={urgent}>
               <span className="ring-label">{clock.deadline ? 'Rest' : 'Rest paused'}</span><strong className="ring-time mono">{formatClock(clock.left)}</strong>
             </TimerRing> : timed ? <TimerRing fraction={pending ? 0 : 1} tone={ringTone}>
-              <span className="ring-label">{pending ? 'Set complete' : 'Timed set'}</span><strong className="ring-time mono">{formatClock(seconds)}</strong>
+              <span className="ring-label">{pending ? 'Set complete' : sided(item) ? 'Each side · auto switch' : 'Timed set'}</span><strong className="ring-time mono">{formatClock(sided(item) ? seconds / 2 : seconds)}</strong>
             </TimerRing> : <div className="rep-target">
               <strong className="mono">{targetReps(item.reps) ?? item.reps}</strong>
               <span>{targetReps(item.reps) !== undefined ? item.reps.replace(/^\d+\s*/, '') || 'reps' : ''}</span>
@@ -413,6 +442,7 @@ export function WorkoutPlayer(props: Props) {
             {showKg && <Stepper label="Weight" value={kg} set={setKg} step={0.5} max={300} unit="kg"/>}
           </div>}
           {pending && manual && <label className="field contacts-field">Foot contacts this set<input type="number" value={contacts} min={0} max={500} onChange={event => { setContacts(event.target.value); setContactError(false) }} autoFocus/>{contactError && <span className="negative">Enter a whole number from 0 to 500.</span>}</label>}
+          {rpeRow}
           {lastSet && phase === 'idle' && <p className="last-time"><Flame size={14}/>Last time: <strong className="mono">{lastSet.reps !== undefined ? lastSet.reps + (lastSet.kg ? ' × ' + lastSet.kg + ' kg' : ' reps') : lastSet.contacts ? lastSet.contacts + ' contacts' : 'done'}</strong></p>}
 
           <div className="primary-actions">
@@ -423,7 +453,7 @@ export function WorkoutPlayer(props: Props) {
               <kbd>{phase === 'ready' || phase === 'work' ? 'Space' : 'Enter'}</kbd>
             </button>
             {phase === 'rest' && clock && <button className="button subtle" onClick={() => setClock({ ...clock, left: clock.left + 15, duration: clock.duration + 15, deadline: clock.deadline ? clock.deadline + 15000 : undefined })}><Plus size={17}/>15 s</button>}
-            {phase === 'work' && <button className="button subtle" onClick={() => { setClock(undefined); workEnd() }}><Check size={17}/>Done early</button>}
+            {phase === 'work' && <button className="button subtle" onClick={() => segmentDone(true)}><Check size={17}/>{seg + 1 < plan.length ? 'Next side' : 'Done early'}</button>}
             {phase === 'idle' && !timed && tempo && ticks.length > 0 && <button className="button subtle" onClick={toggle} aria-pressed={tempoRunning}><Timer size={17}/>{tempoRunning ? 'Stop metronome' : 'Metronome'}<kbd>Space</kbd></button>}
           </div>
         </>}

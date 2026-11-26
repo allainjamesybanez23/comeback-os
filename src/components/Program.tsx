@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react'
-import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, CalendarDays, Check, ChevronRight, Copy, LockKeyhole, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
-import { categories, circuitDoses, days, phases, progression, type Category, type Exercise } from '../data/comebackProgram'
+import { AlertTriangle, ArrowDown, ArrowLeftRight, ArrowUp, CalendarDays, Check, ChevronRight, Copy, Hand, LockKeyhole, Package, Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
+import { categories, circuitDoses, days, optionalEquipment, phases, progression, type Category, type Exercise } from '../data/comebackProgram'
 import { library } from '../data/library'
-import { activePhase, programSections, sessionMinutes, clearanceEarliest, dateLabel, dayFor, editKey, eligiblePhase, monday, plusDays, prescribed, scheduleConflicts, startDate, weekFor, type State } from '../model'
+import { activePhase, programSections, sessionMinutes, clearanceEarliest, dateLabel, dayFor, editKey, eligiblePhase, gateLevel, gateRank, monday, owns, plusDays, prescribed, scheduleConflicts, startDate, weekFor, type State } from '../model'
 import type { Update } from '../store'
 import { CategoryPill, Dialog, Empty } from './ui'
 
@@ -24,12 +24,14 @@ export function Program({ state, update, today, navigate }: Props & { navigate(d
   const [target,setTarget] = useState('')
   const [showWarnings,setShowWarnings] = useState(false)
   const [clearDialog,setClearDialog] = useState(false)
+  const [advance,setAdvance] = useState(0)
   const phase = activePhase(state,today)
+  const level = gateLevel(state,today)
   const eligible = eligiblePhase(state.clarity,today)
   const key = editKey(week,day,phase)
   const items = state.edits[key] ?? prescribed(day,week,phase)
   const changed = state.edits[key] !== undefined
-  const filtered = category ? items.filter(item => category === categories[9] ? item.flag : item.category === category) : items
+  const filtered = category ? items.filter(item => category === categories[categories.length - 1] ? item.flag : item.category === category) : items
   const weekDays = Array.from({length:7},(_,i) => plusDays(start,i))
   const propose = (before: State) => ({
     ...before, schedule: { ...before.schedule, [change]: dayFor(before,target), [target]: dayFor(before,change) },
@@ -128,7 +130,7 @@ export function Program({ state, update, today, navigate }: Props & { navigate(d
         </div>
       })}
       {changed && <div className="panel-footer"><button className="button subtle" onClick={reset}>Reset to program defaults</button></div>}
-      {editor && <ExerciseForm key={editor.item.id + editor.mode} editor={editor} phase={phase} save={saveItem} close={() => setEditor(undefined)}/>}
+      {editor && <ExerciseForm key={editor.item.id + editor.mode} editor={editor} state={state} level={level} save={saveItem} close={() => setEditor(undefined)}/>}
       {remove && <Dialog title="Remove exercise?" close={() => setRemove(undefined)}><p>Remove {remove.name} from this week’s session plan.</p><button className="button" onClick={() => { write(items.filter(item => item.id !== remove.id));setRemove(undefined) }}>Remove exercise</button></Dialog>}
     </section>}
     {tab === 'progression' && <div className="page-content">
@@ -154,23 +156,37 @@ export function Program({ state, update, today, navigate }: Props & { navigate(d
             </>}
           </form>
         </Dialog>}
+        <form key={state.light?.date ?? 'none'} className="light-gate form-grid two-fields" onSubmit={e => {
+          e.preventDefault()
+          const data = new FormData(e.currentTarget), date = String(data.get('date') ?? ''), note = String(data.get('note') ?? '').trim()
+          if (/^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today) update(before => ({ ...before, light: { date, note: note || undefined } }))
+        }}>
+          <p className="field wide"><strong><Hand size={15}/> Light right-hand use OK’d</strong>Enter this after your follow-up, only if your surgeon or physio said light right-hand use is fine. It unlocks the soft right-hand ladder and light grip work. Heavy, impact and twisting load still wait for clearance.</p>
+          <label className="field">Date OK’d<input name="date" type="date" required max={today} defaultValue={state.light?.date}/></label>
+          <label className="field">Note<input name="note" maxLength={140} placeholder="What they said, e.g. foam ball only" defaultValue={state.light?.note}/></label>
+          <div className="form-footer"><button className="button" type="submit"><Check size={17}/>{state.light ? 'Update' : 'Save'}</button>{state.light && <button type="button" className="button subtle" onClick={() => update(before => ({ ...before, light: undefined }))}>Remove</button>}{state.light && <span role="status">{state.light.date <= today ? 'Unlocked' : 'Unlocks'} {dateLabel(state.light.date,{dateStyle:'medium'})}</span>}</div>
+        </form>
         <div className="phase-list">{phases.map((item,i) => <details key={item.name} open={i === phase}>
           <summary><span className="mono">P{i}</span><strong>{item.name}</strong><span>{i === phase ? 'Active' : i > phase ? <><LockKeyhole size={14}/> Locked</> : 'Available'}</span></summary>
           <p>{item.span} · {item.basketball}</p>
           {i === 0 ? <p>17 kg dumbbell in the left hand only. No pull-ups, hangs, floor push-ups, or hand planks.</p> : item.rows.map(row => <p key={row.id}>{row.name} <span className="mono muted">{row.sets > 1 ? row.sets + ' × ' : ''}{row.reps}</span> · {row.load}</p>)}
-          {i === phase+1 && i <= eligible && <button className="button subtle" onClick={() => setChange('phase-' + i)}>Advance to Phase {i}</button>}
+          {i === phase+1 && i <= eligible && <button className="button subtle" onClick={() => setAdvance(i)}>Advance to Phase {i}</button>}
         </details>)}</div>
-        {change.startsWith('phase-') && <Dialog title="Advance the active phase" close={() => setChange('')}><p>Confirm you have been pain-free for a full week and the next phase is within your surgeon’s instructions.</p><button className="button" onClick={() => { const next = Number(change.slice(6)); if (next <= eligible) update(before => ({ ...before, phase:next }));setChange('') }}>Confirm progression</button></Dialog>}
+        {advance > 0 && <Dialog title="Advance the active phase" close={() => setAdvance(0)}><p>Confirm you have been pain-free for a full week and the next phase is within your surgeon’s instructions.</p><button className="button" onClick={() => { if (advance <= eligible) update(before => ({ ...before, phase:advance }));setAdvance(0) }}>Confirm progression</button></Dialog>}
+      </section>
+      <section className="panel padded">
+        <div className="section-header"><div><h2>Your equipment</h2><p>Base kit: 17 kg dumbbell, bands, bench, wall, foam ball, tennis ball and towel. Tick the extras you own. Exercises that need gear you don’t have stay hidden.</p></div><Package size={22}/></div>
+        <div className="equipment-list">{optionalEquipment.map(item => <label key={item} className="checkbox"><input type="checkbox" checked={(state.equipment ?? []).includes(item)} onChange={e => update(before => ({ ...before, equipment: e.target.checked ? [...(before.equipment ?? []), item] : (before.equipment ?? []).filter(owned => owned !== item) }))}/>{{ 'rice bucket': 'Rice bucket', 'hand gripper': 'Hand gripper', 'wrist roller': 'DIY wrist roller (stick, rope, water bottle)', basketball: 'Real basketball', putty: 'Therapy putty' }[item]}</label>)}</div>
       </section>
     </div>}
   </div>
 }
 
-function ExerciseForm({ editor, save, close, phase }: { editor: Editor; phase: number; save(item: Exercise): void; close(): void }) {
+function ExerciseForm({ editor, save, close, state, level }: { editor: Editor; state: State; level: number; save(item: Exercise): void; close(): void }) {
   const [draft,setDraft] = useState(editor.item)
   const [query,setQuery] = useState('')
   const [choice,setChoice] = useState('')
-  const libraryMatches = useMemo(() => library.filter(item => (item.minPhase ?? 0) <= phase && item.name.toLowerCase().includes(query.trim().toLowerCase())),[query,phase])
+  const libraryMatches = useMemo(() => library.filter(item => gateRank(item) <= level && owns(state, item.equipment) && item.name.toLowerCase().includes(query.trim().toLowerCase())),[query,level,state.equipment])
   const selected = libraryMatches.find(item => item.id === choice)
   function apply(event: FormEvent) {
     event.preventDefault()
